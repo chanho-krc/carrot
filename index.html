@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사내 바자회</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏪</text></svg>">
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .admin-login-container {
+            padding: 20px 0;
+        }
+        .admin-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .admin-info p {
+            margin: 0 0 10px 0;
+            font-weight: 600;
+            color: #333;
+        }
+        .admin-info ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #666;
+        }
+        .admin-info li {
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><i class="fas fa-store"></i> 사내 바자회</h1>
+            <nav>
+                <button id="addItemBtn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> 물건 등록
+                </button>
+                <button id="adminBtn" class="btn btn-secondary" style="display: none;">
+                    <i class="fas fa-key"></i> 관리자
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- 물건 등록 모달 -->
+        <div id="addItemModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    
+                    <h2><i class="fas fa-plus-circle"></i> 새 물건 등록</h2>
+                    <span class="close">&times;</span>
+                </div>
+                <form id="addItemForm">
+                    <div class="form-group">
+                        <label for="itemName">물건명</label>
+                        <input type="text" id="itemName" name="itemName" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="itemImage">사진 (여러 장 가능)</label>
+                        <div class="file-upload-container">
+                            <input type="file" id="itemImage" name="itemImage" accept="image/*" multiple style="display: none;">
+                            <div id="fileUploadBtn" class="file-upload-btn drop-zone">
+                                <div class="upload-content">
+                                    <i class="fas fa-camera"></i>
+                                    <span>사진 선택하기</span>
+                                    <small>클릭하여 선택하거나 여기에 드래그해서 업로드하세요</small>
+                                    <div class="upload-hint">
+                                        <i class="fas fa-images"></i>
+                                        여러 장의 사진을 한 번에 업로드할 수 있습니다
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="selectedFilesList" class="selected-files-list"></div>
+                        </div>
+                        <div id="imagePreview" class="image-preview-grid"></div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="itemPrice">가격 (원)</label>
+                        <input type="number" id="itemPrice" name="itemPrice" min="0" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="itemDescription">물건 특징</label>
+                        <textarea id="itemDescription" name="itemDescription" rows="4" required></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="sellerName">판매자명</label>
+                        <input type="text" id="sellerName" name="sellerName" required>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary">등록하기</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 관리자 로그인 모달 -->
+        <div id="adminModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-key"></i> 관리자 로그인</h2>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="admin-login-container">
+                    <div class="form-group">
+                        <label for="adminPassword">관리자 비밀번호</label>
+                        <input type="password" id="adminPassword" placeholder="비밀번호를 입력하세요">
+                    </div>
+                    <button id="adminLoginBtn" class="btn btn-primary">로그인</button>
+                    <div class="admin-info">
+                        <p><strong>관리자 기능:</strong></p>
+                        <ul>
+                            <li>등록된 물건 삭제</li>
+                            <li>관리자 로그아웃</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 필터 및 검색 -->
+        <div class="filters">
+            <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input type="text" id="searchInput" placeholder="물건명 또는 판매자로 검색...">
+            </div>
+            <div class="sort-options">
+                <select id="sortSelect">
+                    <option value="latest">최신순</option>
+                    <option value="priceAsc">가격 낮은순</option>
+                    <option value="priceDesc">가격 높은순</option>
+                    <option value="name">이름순</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 물건 목록 -->
+        <div id="itemsList" class="items-grid">
+            <!-- 물건들이 여기에 동적으로 추가됩니다 -->
+        </div>
+
+        <!-- 빈 상태 메시지 -->
+        <div id="emptyState" class="empty-state">
+            <i class="fas fa-box-open"></i>
+            <h3>아직 등록된 물건이 없습니다</h3>
+            <p>첫 번째 물건을 등록해보세요!</p>
+            <button class="btn btn-primary" onclick="document.getElementById('addItemBtn').click()">
+                물건 등록하기
+            </button>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html> 
