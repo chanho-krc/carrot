@@ -159,6 +159,37 @@
         </div>
     </main>
 
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Firebase 설정
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getDatabase, ref, set, get, push, remove, onValue } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDumyApiKey", // 실제 키로 교체 필요
+            authDomain: "carrot-e542c.firebaseapp.com",
+            databaseURL: "https://carrot-e542c-default-rtdb.firebaseio.com",
+            projectId: "carrot-e542c",
+            storageBucket: "carrot-e542c.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abc123def456"
+        };
+
+        // Firebase 초기화
+        const app = initializeApp(firebaseConfig);
+        const database = getDatabase(app);
+
+        // Firebase 함수들을 전역으로 사용할 수 있도록 설정
+        window.firebase = {
+            database,
+            ref,
+            set,
+            get,
+            push,
+            remove,
+            onValue
+        };
+    </script>
     <script src="script.js"></script>
 </body>
 </html> 

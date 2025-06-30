@@ -1,7 +1,66 @@
 // 전역 변수
-let items = JSON.parse(localStorage.getItem('bazaarItems')) || [];
+let items = [];
 let selectedFiles = []; // 선택된 파일들을 저장하는 배열
-let isAdmin = localStorage.getItem('isAdmin') === 'true' || false; // 관리자 상태
+let isAdmin = false; // 관리자 상태
+
+// Firebase 관련 함수들
+async function loadItemsFromFirebase() {
+    if (!window.firebase) {
+        console.log('Firebase가 아직 로드되지 않았습니다. 재시도 중...');
+        setTimeout(loadItemsFromFirebase, 100);
+        return;
+    }
+    
+    try {
+        const { database, ref, get } = window.firebase;
+        const itemsRef = ref(database, 'items');
+        const snapshot = await get(itemsRef);
+        
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            items = Object.keys(data).map(key => ({
+                id: key,
+                ...data[key]
+            }));
+            console.log('Firebase에서 물건 목록 로드됨:', items.length, '개');
+        } else {
+            console.log('Firebase에 저장된 물건이 없습니다.');
+            items = [];
+        }
+        
+        renderItems();
+    } catch (error) {
+        console.error('Firebase에서 데이터 로드 실패:', error);
+        items = [];
+        renderItems();
+    }
+}
+
+async function loadAdminStatusFromFirebase() {
+    if (!window.firebase) {
+        console.log('Firebase가 아직 로드되지 않았습니다.');
+        return;
+    }
+    
+    try {
+        const { database, ref, get } = window.firebase;
+        const adminRef = ref(database, 'admin/isLoggedIn');
+        const snapshot = await get(adminRef);
+        
+        if (snapshot.exists()) {
+            isAdmin = snapshot.val();
+            console.log('Firebase에서 관리자 상태 로드됨:', isAdmin);
+        } else {
+            isAdmin = false;
+        }
+        
+        updateAdminUI();
+    } catch (error) {
+        console.error('Firebase에서 관리자 상태 로드 실패:', error);
+        isAdmin = false;
+        updateAdminUI();
+    }
+}
 
 // DOM 요소들
 const addItemBtn = document.getElementById('addItemBtn');
@@ -18,9 +77,10 @@ const imagePreview = document.getElementById('imagePreview');
 
 // 이벤트 리스너 설정
 document.addEventListener('DOMContentLoaded', function() {
-    renderItems();
     setupEventListeners();
-    updateAdminUI(); // 관리자 UI 상태 업데이트
+    // Firebase에서 데이터 로드
+    loadItemsFromFirebase();
+    loadAdminStatusFromFirebase();
 });
 
 function setupEventListeners() {
@@ -625,8 +685,29 @@ function handleAddItem(event) {
 }
 
 // 데이터 저장
-function saveItems() {
-    localStorage.setItem('bazaarItems', JSON.stringify(items));
+async function saveItems() {
+    if (!window.firebase) {
+        console.error('Firebase가 로드되지 않아 데이터를 저장할 수 없습니다.');
+        return;
+    }
+    
+    try {
+        const { database, ref, set } = window.firebase;
+        
+        // items 배열을 객체로 변환 (Firebase는 배열보다 객체가 효율적)
+        const itemsObject = {};
+        items.forEach(item => {
+            itemsObject[item.id] = item;
+        });
+        
+        const itemsRef = ref(database, 'items');
+        await set(itemsRef, itemsObject);
+        
+        console.log('Firebase에 물건 목록 저장 완료');
+    } catch (error) {
+        console.error('Firebase 저장 실패:', error);
+        throw error; // 에러를 다시 던져서 호출하는 곳에서 처리할 수 있도록
+    }
 }
 
 // 물건 목록 렌더링
@@ -784,14 +865,26 @@ function filterItems() {
 }
 
 // 관리자 로그인 처리
-function handleAdminLogin() {
+async function handleAdminLogin() {
     const adminPassword = document.getElementById('adminPassword');
     const password = adminPassword.value;
     
     // 간단한 비밀번호 (실제 운영에서는 더 안전한 방법 사용)
     if (password === 'admin123') {
         isAdmin = true;
-        localStorage.setItem('isAdmin', 'true');
+        
+        // Firebase에 관리자 상태 저장
+        if (window.firebase) {
+            try {
+                const { database, ref, set } = window.firebase;
+                const adminRef = ref(database, 'admin/isLoggedIn');
+                await set(adminRef, true);
+                console.log('Firebase에 관리자 상태 저장 완료');
+            } catch (error) {
+                console.error('Firebase에 관리자 상태 저장 실패:', error);
+            }
+        }
+        
         closeModal(adminModal);
         updateAdminUI();
         showNotification('관리자로 로그인되었습니다.', 'success');
@@ -803,9 +896,21 @@ function handleAdminLogin() {
 }
 
 // 관리자 로그아웃
-function logout() {
+async function logout() {
     isAdmin = false;
-    localStorage.setItem('isAdmin', 'false');
+    
+    // Firebase에 관리자 상태 저장
+    if (window.firebase) {
+        try {
+            const { database, ref, set } = window.firebase;
+            const adminRef = ref(database, 'admin/isLoggedIn');
+            await set(adminRef, false);
+            console.log('Firebase에 관리자 로그아웃 상태 저장 완료');
+        } catch (error) {
+            console.error('Firebase에 관리자 상태 저장 실패:', error);
+        }
+    }
+    
     updateAdminUI();
     showNotification('로그아웃되었습니다.', 'info');
 }
@@ -1038,7 +1143,7 @@ window.bazaarApp = {
 };
 
 // 물건 삭제 함수
-function deleteItem(itemId) {
+async function deleteItem(itemId) {
     // 관리자 권한 확인
     if (!isAdmin) {
         showNotification('관리자만 물건을 삭제할 수 있습니다.', 'error');
@@ -1061,8 +1166,8 @@ function deleteItem(itemId) {
         const deletedItem = items[itemIndex];
         items.splice(itemIndex, 1);
         
-        // 로컬 스토리지에 저장
-        saveItems();
+        // Firebase에 저장
+        await saveItems();
         
         // 화면 업데이트
         renderItems();
