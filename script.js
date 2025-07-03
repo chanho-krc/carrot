@@ -1106,18 +1106,19 @@ document.addEventListener('touchend', function(event) {
 });
 
 function handleSwipe() {
-    const swipeThreshold = 50;
-    const diff = touchStartY - touchEndY;
+    // 스와이프 기능 비활성화 - 실수로 물건 등록이 되는 것을 방지
+    // const swipeThreshold = 50;
+    // const diff = touchStartY - touchEndY;
     
-    if (Math.abs(diff) > swipeThreshold) {
-        if (diff > 0) {
-            // 위로 스와이프 - 물건 등록 모달 열기
-            const addItemBtn = document.getElementById('addItemBtn');
-            if (addItemBtn) {
-                addItemBtn.click();
-            }
-        }
-    }
+    // if (Math.abs(diff) > swipeThreshold) {
+    //     if (diff > 0) {
+    //         // 위로 스와이프 - 물건 등록 모달 열기
+    //         const addItemBtn = document.getElementById('addItemBtn');
+    //         if (addItemBtn) {
+    //             addItemBtn.click();
+    //         }
+    //     }
+    // }
 }
 
 // 키보드 단축키
