@@ -108,12 +108,12 @@ main {
 
 .modal-content {
     background-color: white;
-    margin: 5% auto;
+    margin: 2% auto;
     padding: 0;
     border-radius: 15px;
     width: 90%;
     max-width: 500px;
-    max-height: 90vh;
+    max-height: 95vh;
     overflow-y: auto;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
     animation: modalSlideIn 0.3s ease;
@@ -653,7 +653,7 @@ form {
 /* 아이템 상세보기 모달 */
 .item-detail-modal {
     max-width: 1200px;
-    max-height: 95vh;
+    max-height: 98vh;
     width: 95vw;
 }
 
@@ -844,8 +844,9 @@ form {
     }
 
     .modal-content {
-        margin: 10% auto;
+        margin: 5% auto;
         width: 95%;
+        max-height: 90vh;
     }
 
 
@@ -1134,6 +1135,27 @@ form {
     background: #f8f9fa;
     border-radius: 10px;
     border: 1px solid #e9ecef;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* 입찰 내역 스크롤바 스타일 */
+.bid-history::-webkit-scrollbar {
+    width: 8px;
+}
+
+.bid-history::-webkit-scrollbar-track {
+    background: #e9ecef;
+    border-radius: 4px;
+}
+
+.bid-history::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 4px;
+}
+
+.bid-history::-webkit-scrollbar-thumb:hover {
+    background: #5a6fd8;
 }
 
 .bid-history h3 {
@@ -1313,6 +1335,7 @@ form {
     
     .bid-history {
         padding: 15px;
+        max-height: 250px;
     }
     
     .bid-history h3 {
