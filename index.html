@@ -84,6 +84,16 @@
                     </div>
                     
                     <div class="form-group">
+                        <label for="purchaseDate">구매시점</label>
+                        <input type="date" id="purchaseDate" name="purchaseDate" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="purchasePrice">구매가격 (원)</label>
+                        <input type="number" id="purchasePrice" name="purchasePrice" min="0" required>
+                    </div>
+                    
+                    <div class="form-group">
                         <label for="itemPrice">시작가 (원)</label>
                         <input type="number" id="itemPrice" name="itemPrice" min="0" required>
                     </div>
@@ -120,6 +130,8 @@
                         <p><strong>관리자 기능:</strong></p>
                         <ul>
                             <li>등록된 물건 삭제</li>
+                            <li>입찰자 연락처 보기</li>
+                            <li>현장경매 설정/해제</li>
                             <li>관리자 로그아웃</li>
                         </ul>
                     </div>
@@ -127,12 +139,44 @@
             </div>
         </div>
 
-        <!-- 필터 및 검색 -->
-        <div class="filters">
-            <div class="search-box">
-                <i class="fas fa-search"></i>
-                <input type="text" id="searchInput" placeholder="물건명 또는 판매자로 검색...">
+        <!-- 입찰 모달 -->
+        <div id="bidModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-gavel"></i> 입찰하기</h2>
+                    <span class="close">&times;</span>
+                </div>
+                <form id="bidForm">
+                    <div class="form-group">
+                        <label for="bidAmount">입찰 금액 (원)</label>
+                        <input type="number" id="bidAmount" name="bidAmount" min="0" required>
+                        <small id="minBidHint">최소 입찰 금액: <span id="minBidAmount">0</span>원</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="bidderName">입찰자명 (가명)</label>
+                        <input type="text" id="bidderName" name="bidderName" readonly>
+                        <button type="button" id="generateNameBtn" class="btn btn-secondary">
+                            <i class="fas fa-random"></i> 새 가명 생성
+                        </button>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="bidderContact">연락처</label>
+                        <input type="tel" id="bidderContact" name="bidderContact" placeholder="숫자만 입력하세요 (자동으로 - 추가됨)" required>
+                        <small>연락처는 관리자만 볼 수 있습니다.</small>
+                    </div>
+                    
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">입찰하기</button>
+                        <button type="button" id="closeBidModal" class="btn btn-secondary">취소</button>
+                    </div>
+                </form>
             </div>
+        </div>
+
+        <!-- 정렬 옵션 -->
+        <div class="sort-container">
             <div class="sort-options">
                 <select id="sortSelect">
                     <option value="latest">최신순</option>

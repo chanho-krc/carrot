@@ -70,7 +70,6 @@ const adminBtn = document.getElementById('adminBtn');
 const addItemForm = document.getElementById('addItemForm');
 const itemsList = document.getElementById('itemsList');
 const emptyState = document.getElementById('emptyState');
-const searchInput = document.getElementById('searchInput');
 const sortSelect = document.getElementById('sortSelect');
 const imageInput = document.getElementById('itemImage');
 const imagePreview = document.getElementById('imagePreview');
@@ -93,7 +92,6 @@ function setupEventListeners() {
         addItemForm: !!addItemForm,
         imageInput: !!imageInput,
         imagePreview: !!imagePreview,
-        searchInput: !!searchInput,
         sortSelect: !!sortSelect
     });
     
@@ -118,9 +116,9 @@ function setupEventListeners() {
         });
     });
     
-    // 모달 닫기 (배경 클릭)
+    // 모달 닫기 (배경 클릭) - 입찰 모달은 제외
     window.addEventListener('click', function(event) {
-        if (event.target.classList.contains('modal')) {
+        if (event.target.classList.contains('modal') && event.target.id !== 'bidModal') {
             closeModal(event.target);
         }
     });
@@ -133,10 +131,7 @@ function setupEventListeners() {
     // 다중 파일 업로드 및 드래그 앤 드롭
     setupFileUpload();
     
-    // 검색 및 정렬
-    if (searchInput) {
-        searchInput.addEventListener('input', filterItems);
-    }
+    // 정렬
     if (sortSelect) {
         sortSelect.addEventListener('change', filterItems);
     }
@@ -646,11 +641,15 @@ function handleAddItem(event) {
                     id: Date.now(),
                     name: formData.get('itemName'),
                     price: parseInt(formData.get('itemPrice')),
+                    purchaseDate: formData.get('purchaseDate'),
+                    purchasePrice: parseInt(formData.get('purchasePrice')),
                     description: formData.get('itemDescription'),
                     seller: formData.get('sellerName'),
                     images: images,
                     mainImage: images[0].data, // 첫 번째 이미지를 메인 이미지로
-                    date: new Date().toISOString()
+                    date: new Date().toISOString(),
+                    bids: [], // 입찰 목록
+                    isLiveAuction: false // 현장경매 여부
                 };
                 
                 items.unshift(newItem); // 최신 순으로 추가
@@ -724,6 +723,12 @@ function renderItems(itemsToRender = items) {
             const mainImage = item.mainImage || item.image;
             const imageCount = item.images ? item.images.length : 1;
             
+            // 입찰 관련 정보 계산
+            const bids = item.bids || [];
+            const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
+            const currentPrice = Math.max(item.price, highestBid);
+            const bidCount = bids.length;
+            
             return `
                 <div class="item-card fade-in" data-id="${item.id}">
                     <div class="item-image-container" onclick="showItemDetails(${item.id})">
@@ -734,17 +739,57 @@ function renderItems(itemsToRender = items) {
                                 ${imageCount}
                             </div>
                         ` : ''}
+                        ${bidCount > 0 ? `
+                            <div class="bid-count-badge">
+                                <i class="fas fa-gavel"></i>
+                                ${bidCount}
+                            </div>
+                        ` : ''}
+                        ${item.isLiveAuction ? `
+                            <div class="live-auction-badge">
+                                <i class="fas fa-microphone"></i>
+                                현장경매
+                            </div>
+                        ` : ''}
                     </div>
                     <div class="item-info" onclick="showItemDetails(${item.id})">
                         <div class="item-name">${escapeHtml(item.name)}</div>
-                        <div class="item-price">${formatPrice(item.price)}원</div>
+                        <div class="item-price-info">
+                            <div class="current-price">${formatPrice(currentPrice)}원</div>
+                            ${highestBid > 0 ? `
+                                <div class="start-price">시작가: ${formatPrice(item.price)}원</div>
+                            ` : `
+                                <div class="start-price">시작가</div>
+                            `}
+                        </div>
                         <div class="item-description">${escapeHtml(item.description)}</div>
+                        <div class="item-purchase-info">
+                            ${item.purchaseDate ? `
+                                <div class="purchase-date">
+                                    <i class="fas fa-calendar"></i> ${formatDate(item.purchaseDate)}
+                                </div>
+                            ` : ''}
+                            ${item.purchasePrice ? `
+                                <div class="purchase-price">
+                                    <i class="fas fa-won-sign"></i> 구매가: ${formatPrice(item.purchasePrice)}원
+                                </div>
+                            ` : ''}
+                        </div>
                         <div class="item-seller">
                             <i class="fas fa-user"></i> ${escapeHtml(item.seller)}
                             <div class="item-date">${formatDate(item.date)}</div>
                         </div>
                     </div>
                     <div class="item-actions">
+                        ${!item.isLiveAuction ? `
+                            <button class="bid-btn" onclick="openBidModal(${item.id})" title="입찰하기">
+                                <i class="fas fa-gavel"></i> 입찰
+                            </button>
+                        ` : `
+                            <button class="live-auction-btn" disabled title="현장경매 진행중">
+                                <i class="fas fa-microphone"></i> 현장경매
+                            </button>
+                        `}
                         <button class="delete-item-btn" onclick="deleteItem(${item.id})" title="이 물건 삭제" 
                                 style="display: ${isAdmin ? 'block' : 'none'};">
                             <i class="fas fa-trash"></i>
@@ -834,34 +879,29 @@ function changeMainImage(imageSrc, thumbnail) {
     thumbnail.classList.add('active');
 }
 
-// 검색 및 정렬
+// 정렬
 function filterItems() {
-    const searchTerm = searchInput.value.toLowerCase();
     const sortBy = sortSelect.value;
     
-    let filteredItems = items.filter(item => 
-        item.name.toLowerCase().includes(searchTerm) ||
-        item.seller.toLowerCase().includes(searchTerm) ||
-        item.description.toLowerCase().includes(searchTerm)
-    );
+    let sortedItems = [...items]; // 모든 아이템을 복사
     
     // 정렬
     switch (sortBy) {
         case 'latest':
-            filteredItems.sort((a, b) => new Date(b.date) - new Date(a.date));
+            sortedItems.sort((a, b) => new Date(b.date) - new Date(a.date));
             break;
         case 'priceAsc':
-            filteredItems.sort((a, b) => a.price - b.price);
+            sortedItems.sort((a, b) => a.price - b.price);
             break;
         case 'priceDesc':
-            filteredItems.sort((a, b) => b.price - a.price);
+            sortedItems.sort((a, b) => b.price - a.price);
             break;
         case 'name':
-            filteredItems.sort((a, b) => a.name.localeCompare(b.name));
+            sortedItems.sort((a, b) => a.name.localeCompare(b.name));
             break;
     }
     
-    renderItems(filteredItems);
+    renderItems(sortedItems);
 }
 
 // 관리자 로그인 처리
@@ -1071,8 +1111,11 @@ function handleSwipe() {
     
     if (Math.abs(diff) > swipeThreshold) {
         if (diff > 0) {
-            // 위로 스와이프 - 검색 박스 포커스
-            searchInput.focus();
+            // 위로 스와이프 - 물건 등록 모달 열기
+            const addItemBtn = document.getElementById('addItemBtn');
+            if (addItemBtn) {
+                addItemBtn.click();
+            }
         }
     }
 }
@@ -1183,4 +1226,407 @@ async function deleteItem(itemId) {
 }
 
 // 전역 함수로 노출
-window.deleteItem = deleteItem; 
+window.deleteItem = deleteItem;
+
+// ==================== 입찰 관련 기능 ====================
+
+// 입찰 모달 열기
+function openBidModal(itemId) {
+    const item = items.find(item => item.id === itemId);
+    if (!item) return;
+    
+    // 현장경매 물건은 입찰 불가
+    if (item.isLiveAuction) {
+        showNotification('현장경매 진행중인 물건은 온라인 입찰이 불가능합니다.', 'error');
+        return;
+    }
+    
+    // 다른 모달들 먼저 닫기 (물건 상세보기 모달 등)
+    const openModals = document.querySelectorAll('.modal[style*="block"]');
+    openModals.forEach(modal => {
+        if (modal.id !== 'bidModal') {
+            closeModal(modal);
+        }
+    });
+    
+    // 동적으로 생성된 모달들 제거
+    const dynamicModals = document.querySelectorAll('.modal:not([id])');
+    dynamicModals.forEach(modal => {
+        document.body.removeChild(modal);
+    });
+    
+    const bidModal = document.getElementById('bidModal');
+    const bidAmount = document.getElementById('bidAmount');
+    const bidderName = document.getElementById('bidderName');
+    const bidderContact = document.getElementById('bidderContact');
+    const minBidAmount = document.getElementById('minBidAmount');
+    
+    // 최소 입찰 금액 계산
+    const bids = item.bids || [];
+    const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
+    const minBid = Math.max(item.price, highestBid) + 1000; // 최소 1000원 위
+    
+    // 모달 설정
+    bidAmount.min = minBid;
+    bidAmount.value = minBid;
+    minBidAmount.textContent = formatPrice(minBid);
+    
+    // 가명 생성
+    generateRandomName();
+    
+    // 연락처 초기화
+    bidderContact.value = '';
+    
+    // 현재 입찰하는 아이템 ID 저장
+    bidModal.dataset.itemId = itemId;
+    
+    openModal(bidModal);
+}
+
+// 가명 생성 함수
+function generateRandomName() {
+    const adjectives = ['멋진', '똑똑한', '친절한', '용감한', '신중한', '유쾌한', '성실한', '창의적인', '활발한', '겸손한'];
+    const animals = ['고양이', '강아지', '토끼', '사자', '호랑이', '코끼리', '펭귄', '다람쥐', '여우', '부엉이'];
+    const numbers = String(Math.floor(Math.random() * 1000));
+    
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const animal = animals[Math.floor(Math.random() * animals.length)];
+    
+    const randomName = `${adjective}${animal}${numbers}`;
+    
+    const bidderName = document.getElementById('bidderName');
+    if (bidderName) {
+        bidderName.value = randomName;
+    }
+    
+    return randomName;
+}
+
+// 입찰 처리 함수
+async function handleBidSubmit(event) {
+    event.preventDefault();
+    
+    const bidModal = document.getElementById('bidModal');
+    const itemId = parseInt(bidModal.dataset.itemId);
+    const bidAmount = parseInt(document.getElementById('bidAmount').value);
+    const bidderName = document.getElementById('bidderName').value;
+    const bidderContact = document.getElementById('bidderContact').value;
+    
+    // 입력값 검증
+    if (!bidAmount || !bidderName || !bidderContact) {
+        showNotification('모든 필드를 입력해주세요.', 'error');
+        return;
+    }
+    
+    // 연락처 형식 검증 (숫자만 추출해서 체크)
+    const contactNumbers = bidderContact.replace(/\D/g, '');
+    if (contactNumbers.length !== 11 || !contactNumbers.startsWith('010')) {
+        showNotification('올바른 휴대폰 번호를 입력해주세요. (010으로 시작하는 11자리)', 'error');
+        return;
+    }
+    
+    // 아이템 찾기
+    const item = items.find(item => item.id === itemId);
+    if (!item) {
+        showNotification('물건을 찾을 수 없습니다.', 'error');
+        return;
+    }
+    
+    // 최소 입찰 금액 확인
+    const bids = item.bids || [];
+    const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
+    const minBid = Math.max(item.price, highestBid) + 1000;
+    
+    if (bidAmount < minBid) {
+        showNotification(`최소 입찰 금액은 ${formatPrice(minBid)}원입니다.`, 'error');
+        return;
+    }
+    
+    // 새로운 입찰 추가
+    const newBid = {
+        id: Date.now(),
+        amount: bidAmount,
+        bidderName: bidderName,
+        bidderContact: bidderContact,
+        timestamp: new Date().toISOString()
+    };
+    
+    if (!item.bids) {
+        item.bids = [];
+    }
+    item.bids.push(newBid);
+    
+    // 입찰을 금액 순으로 정렬 (높은 금액이 먼저)
+    item.bids.sort((a, b) => b.amount - a.amount);
+    
+    try {
+        // Firebase에 저장
+        await saveItems();
+        
+        // 화면 업데이트
+        renderItems();
+        
+        // 모달 닫기
+        closeModal(bidModal);
+        
+        showNotification(`${formatPrice(bidAmount)}원으로 입찰되었습니다!`, 'success');
+        
+        console.log('새로운 입찰:', newBid);
+        
+    } catch (error) {
+        console.error('입찰 저장 중 오류:', error);
+        showNotification('입찰 처리 중 오류가 발생했습니다.', 'error');
+        
+        // 실패 시 입찰 목록에서 제거
+        item.bids.pop();
+    }
+}
+
+// 입찰 관련 이벤트 리스너 설정
+function setupBidEventListeners() {
+    const bidForm = document.getElementById('bidForm');
+    const generateNameBtn = document.getElementById('generateNameBtn');
+    const closeBidModalBtn = document.getElementById('closeBidModal');
+    const bidderContact = document.getElementById('bidderContact');
+    
+    if (bidForm) {
+        bidForm.addEventListener('submit', handleBidSubmit);
+    }
+    
+    if (generateNameBtn) {
+        generateNameBtn.addEventListener('click', generateRandomName);
+    }
+    
+    if (closeBidModalBtn) {
+        closeBidModalBtn.addEventListener('click', function() {
+            const bidModal = document.getElementById('bidModal');
+            closeModal(bidModal);
+        });
+    }
+    
+    // 연락처 자동 포맷팅
+    if (bidderContact) {
+        bidderContact.addEventListener('input', formatPhoneNumber);
+        bidderContact.addEventListener('keydown', handlePhoneNumberKeydown);
+    }
+}
+
+// 물건 상세보기 업데이트 (입찰 정보 포함)
+function showItemDetailsWithBids(itemId) {
+    const item = items.find(item => item.id === itemId);
+    if (!item) return;
+    
+    // 이미지 갤러리 모달 생성
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'block';
+    
+    const images = item.images || [{ data: item.image, name: item.name }];
+    const bids = item.bids || [];
+    const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
+    const currentPrice = Math.max(item.price, highestBid);
+    
+    modal.innerHTML = `
+        <div class="modal-content item-detail-modal">
+            <div class="modal-header">
+                <h2><i class="fas fa-info-circle"></i> ${escapeHtml(item.name)}</h2>
+                <span class="close">&times;</span>
+            </div>
+            <div class="item-detail-content">
+                <div class="item-gallery">
+                    <div class="main-image">
+                        <img id="mainDisplayImage" src="${images[0].data}" alt="${item.name}">
+                    </div>
+                    ${images.length > 1 ? `
+                        <div class="thumbnail-gallery">
+                            ${images.map((img, index) => `
+                                <img src="${img.data}" alt="${img.name}" 
+                                     class="thumbnail ${index === 0 ? 'active' : ''}"
+                                     onclick="changeMainImage('${img.data}', this)">
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="item-details">
+                    <div class="detail-price-info">
+                        <div class="current-price">${formatPrice(currentPrice)}원</div>
+                        <div class="start-price">시작가: ${formatPrice(item.price)}원</div>
+                        ${item.purchasePrice ? `
+                            <div class="purchase-price">구매가: ${formatPrice(item.purchasePrice)}원</div>
+                        ` : ''}
+                    </div>
+                    <div class="detail-description">${escapeHtml(item.description)}</div>
+                    <div class="detail-seller">
+                        <i class="fas fa-user"></i> ${escapeHtml(item.seller)}
+                    </div>
+                    <div class="detail-date">
+                        <i class="fas fa-clock"></i> 등록일: ${formatDate(item.date)}
+                    </div>
+                    ${item.purchaseDate ? `
+                        <div class="detail-purchase-date">
+                            <i class="fas fa-calendar"></i> 구매일: ${formatDate(item.purchaseDate)}
+                        </div>
+                    ` : ''}
+                    <div class="detail-images-info">
+                        <i class="fas fa-images"></i> ${images.length}장의 사진
+                    </div>
+                    
+                    ${bids.length > 0 ? `
+                        <div class="bid-history">
+                            <h3><i class="fas fa-gavel"></i> 입찰 현황 (${bids.length}건)</h3>
+                            <div class="bid-list">
+                                ${bids.map((bid, index) => `
+                                    <div class="bid-item ${index === 0 ? 'highest-bid' : ''}">
+                                        <div class="bid-amount">${formatPrice(bid.amount)}원</div>
+                                        <div class="bid-info">
+                                            <div class="bid-name">${escapeHtml(bid.bidderName)}</div>
+                                            <div class="bid-time">${formatDate(bid.timestamp)}</div>
+                                            ${isAdmin ? `
+                                                <div class="bid-contact">연락처: ${escapeHtml(bid.bidderContact)}</div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    <div class="detail-actions">
+                        ${isAdmin ? `
+                            <button class="btn ${item.isLiveAuction ? 'btn-secondary' : 'btn-warning'}" 
+                                    onclick="toggleLiveAuction(${item.id})">
+                                <i class="fas fa-microphone"></i> 
+                                ${item.isLiveAuction ? '현장경매 해제' : '현장경매 설정'}
+                            </button>
+                        ` : ''}
+                        ${!item.isLiveAuction ? `
+                            <button class="btn btn-primary" onclick="openBidModal(${item.id})">
+                                <i class="fas fa-gavel"></i> 입찰하기
+                            </button>
+                        ` : `
+                            <button class="btn btn-secondary" disabled>
+                                <i class="fas fa-microphone"></i> 현장경매 진행중
+                            </button>
+                        `}
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    document.body.style.overflow = 'hidden';
+    
+    // 모달 닫기 이벤트
+    modal.querySelector('.close').addEventListener('click', () => {
+        document.body.removeChild(modal);
+        document.body.style.overflow = 'auto';
+    });
+    
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+            document.body.style.overflow = 'auto';
+        }
+    });
+}
+
+// 기존 showItemDetails 함수를 새로운 함수로 교체
+window.showItemDetails = showItemDetailsWithBids;
+
+// 연락처 자동 포맷팅 함수
+function formatPhoneNumber(event) {
+    const input = event.target;
+    let value = input.value.replace(/\D/g, ''); // 숫자만 추출
+    
+    // 11자리 초과 입력 방지
+    if (value.length > 11) {
+        value = value.slice(0, 11);
+    }
+    
+    // 포맷팅 적용
+    if (value.length <= 3) {
+        input.value = value;
+    } else if (value.length <= 7) {
+        input.value = `${value.slice(0, 3)}-${value.slice(3)}`;
+    } else {
+        input.value = `${value.slice(0, 3)}-${value.slice(3, 7)}-${value.slice(7)}`;
+    }
+}
+
+// 연락처 입력 키다운 이벤트 처리
+function handlePhoneNumberKeydown(event) {
+    const allowedKeys = [
+        'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
+        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+        'Home', 'End'
+    ];
+    
+    // 허용된 키이거나 Ctrl/Cmd 조합키인 경우 허용
+    if (allowedKeys.includes(event.key) || 
+        event.ctrlKey || event.metaKey ||
+        (event.key >= '0' && event.key <= '9')) {
+        return;
+    }
+    
+    // 그 외의 키는 입력 방지
+    event.preventDefault();
+}
+
+// 현장경매 토글 함수
+async function toggleLiveAuction(itemId) {
+    if (!isAdmin) {
+        showNotification('관리자만 현장경매를 설정할 수 있습니다.', 'error');
+        return;
+    }
+    
+    const item = items.find(item => item.id === itemId);
+    if (!item) {
+        showNotification('물건을 찾을 수 없습니다.', 'error');
+        return;
+    }
+    
+    // 현장경매 상태 토글
+    item.isLiveAuction = !item.isLiveAuction;
+    
+    try {
+        // Firebase에 저장
+        await saveItems();
+        
+        // 화면 업데이트
+        renderItems();
+        
+        // 상세보기 모달 닫기
+        const openModals = document.querySelectorAll('.modal[style*="block"]');
+        openModals.forEach(modal => {
+            if (!modal.id) { // 동적으로 생성된 모달
+                document.body.removeChild(modal);
+            }
+        });
+        document.body.style.overflow = 'auto';
+        
+        const message = item.isLiveAuction ? 
+            `"${item.name}" 현장경매가 설정되었습니다.` : 
+            `"${item.name}" 현장경매가 해제되었습니다.`;
+        showNotification(message, 'success');
+        
+        console.log('현장경매 상태 변경:', item.name, '→', item.isLiveAuction);
+        
+    } catch (error) {
+        console.error('현장경매 설정 저장 중 오류:', error);
+        showNotification('현장경매 설정 중 오류가 발생했습니다.', 'error');
+        
+        // 실패 시 상태 되돌리기
+        item.isLiveAuction = !item.isLiveAuction;
+    }
+}
+
+// 전역 함수로 노출
+window.openBidModal = openBidModal;
+window.generateRandomName = generateRandomName;
+window.toggleLiveAuction = toggleLiveAuction;
+
+// 초기화 시 입찰 이벤트 리스너 설정
+document.addEventListener('DOMContentLoaded', function() {
+    setupBidEventListeners();
+}); 

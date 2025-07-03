@@ -474,46 +474,27 @@ form {
     text-overflow: ellipsis;
 }
 
-/* 필터 및 검색 */
-.filters {
-    background: white;
-    padding: 20px;
-    border-radius: 15px;
-    margin-bottom: 30px;
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+/* 정렬 옵션 */
+.sort-container {
     display: flex;
-    gap: 20px;
+    justify-content: flex-end;
+    margin-bottom: 30px;
     align-items: center;
-    flex-wrap: wrap;
-}
-
-.search-box {
-    position: relative;
-    flex: 1;
-    min-width: 250px;
-}
-
-.search-box i {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #6c757d;
-}
-
-.search-box input {
-    width: 100%;
-    padding: 12px 12px 12px 40px;
-    border: 2px solid #e9ecef;
-    border-radius: 8px;
-    font-size: 14px;
 }
 
 .sort-options select {
-    padding: 12px;
+    padding: 12px 16px;
     border: 2px solid #e9ecef;
     border-radius: 8px;
-    background: white;
+    font-size: 14px;
+    background-color: white;
+    cursor: pointer;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23666" d="M2 0L0 2h4zm0 5L0 3h4z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px;
+    padding-right: 40px;
+    appearance: none;
     min-width: 150px;
 }
 
@@ -867,14 +848,7 @@ form {
         width: 95%;
     }
 
-    .filters {
-        flex-direction: column;
-        align-items: stretch;
-    }
 
-    .search-box {
-        min-width: auto;
-    }
 
     .items-grid {
         grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -907,9 +881,7 @@ form {
         grid-template-columns: 1fr;
     }
 
-    .filters {
-        padding: 15px;
-    }
+
 
     .btn {
         padding: 8px 16px;
@@ -979,5 +951,521 @@ form {
     to {
         opacity: 1;
         transform: translateY(0);
+    }
+}
+
+/* ==================== 입찰 관련 스타일 ==================== */
+
+/* 입찰 버튼 */
+.bid-btn {
+    background: linear-gradient(45deg, #28a745, #20c997);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.3s ease;
+    margin-right: 8px;
+}
+
+.bid-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(40, 167, 69, 0.3);
+}
+
+/* 현장경매 버튼 */
+.live-auction-btn {
+    background: linear-gradient(45deg, #dc3545, #fd7e14);
+    color: white;
+    border: none;
+    padding: 16px 32px;
+    border-radius: 12px;
+    cursor: not-allowed;
+    font-size: 24px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.3s ease;
+    margin-right: 16px;
+    opacity: 0.8;
+}
+
+/* 관리자 버튼 스타일 추가 */
+.btn-warning {
+    background: linear-gradient(45deg, #ffc107, #fd7e14);
+    color: white;
+    padding: 16px 32px;
+    font-size: 18px;
+    border-radius: 12px;
+}
+
+.btn-warning:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(255, 193, 7, 0.3);
+}
+
+/* 입찰 뱃지 */
+.bid-count-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: linear-gradient(45deg, #28a745, #20c997);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 10;
+}
+
+/* 현장경매 뱃지 */
+.live-auction-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: linear-gradient(45deg, #dc3545, #fd7e14);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 10;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+    }
+}
+
+/* 가격 정보 스타일 */
+.item-price-info {
+    margin-bottom: 8px;
+}
+
+.current-price {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #667eea;
+    margin-bottom: 4px;
+}
+
+.start-price {
+    font-size: 0.9rem;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+/* 구매 정보 스타일 */
+.item-purchase-info {
+    margin-bottom: 8px;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.purchase-date,
+.purchase-price {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 2px;
+}
+
+.purchase-date i,
+.purchase-price i {
+    width: 12px;
+    text-align: center;
+}
+
+/* 물건 상세보기 가격 정보 */
+.detail-price-info {
+    margin-bottom: 20px;
+}
+
+.detail-price-info .current-price {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #667eea;
+    margin-bottom: 8px;
+}
+
+.detail-price-info .start-price,
+.detail-price-info .purchase-price {
+    font-size: 1rem;
+    color: #6c757d;
+    margin-bottom: 4px;
+}
+
+.detail-purchase-date {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 15px;
+    color: #6c757d;
+}
+
+.detail-purchase-date i {
+    color: #667eea;
+}
+
+/* 입찰 내역 스타일 */
+.bid-history {
+    margin-top: 20px;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 10px;
+    border: 1px solid #e9ecef;
+}
+
+.bid-history h3 {
+    margin-bottom: 15px;
+    color: #333;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bid-history h3 i {
+    color: #28a745;
+}
+
+.bid-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.bid-item {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.3s ease;
+}
+
+.bid-item:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.bid-item.highest-bid {
+    border-color: #28a745;
+    background: linear-gradient(135deg, #d4edda, #c3e6cb);
+}
+
+.bid-item.highest-bid::before {
+    content: "🏆 최고 입찰";
+    position: absolute;
+    top: -8px;
+    right: 10px;
+    background: #28a745;
+    color: white;
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    border-radius: 10px;
+    font-weight: 600;
+}
+
+.bid-item.highest-bid {
+    position: relative;
+}
+
+.bid-amount {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #28a745;
+}
+
+.bid-info {
+    text-align: right;
+}
+
+.bid-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 2px;
+}
+
+.bid-time {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-bottom: 2px;
+}
+
+.bid-contact {
+    font-size: 0.8rem;
+    color: #dc3545;
+    font-weight: 600;
+}
+
+/* 입찰 액션 버튼 */
+.detail-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.detail-actions .btn {
+    padding: 16px 32px;
+    font-size: 1.2rem;
+    margin: 8px;
+}
+
+.detail-actions .btn-warning,
+.detail-actions .btn-secondary[disabled] {
+    font-size: 1.4rem;
+    padding: 20px 40px;
+}
+
+/* 입찰 모달 스타일 */
+#bidModal {
+    z-index: 2000 !important; /* 다른 모달보다 위에 표시 */
+}
+
+#bidModal .form-group small {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin-top: 5px;
+    display: block;
+}
+
+#minBidHint {
+    font-weight: 600;
+    color: #28a745;
+}
+
+#generateNameBtn {
+    margin-top: 8px;
+    padding: 8px 12px;
+    font-size: 0.9rem;
+}
+
+#bidderName {
+    background-color: #f8f9fa;
+    border-color: #e9ecef;
+}
+
+/* 입찰 모달 폼 액션 버튼들 */
+.form-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.form-actions .btn {
+    flex: 1;
+    justify-content: center;
+}
+
+/* 모바일 대응 */
+@media (max-width: 768px) {
+    .bid-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .bid-info {
+        text-align: left;
+        width: 100%;
+    }
+    
+    .bid-amount {
+        font-size: 1.1rem;
+    }
+    
+    .item-purchase-info {
+        font-size: 0.75rem;
+    }
+    
+    .current-price {
+        font-size: 1.1rem;
+    }
+    
+    .start-price {
+        font-size: 0.8rem;
+    }
+    
+    .detail-price-info .current-price {
+        font-size: 1.5rem;
+    }
+    
+    .bid-history {
+        padding: 15px;
+    }
+    
+    .bid-history h3 {
+        font-size: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .bid-btn {
+        padding: 6px 12px;
+        font-size: 11px;
+    }
+    
+    .live-auction-btn {
+        padding: 12px 24px;
+        font-size: 18px;
+        border-radius: 8px;
+    }
+    
+    .bid-count-badge,
+    .live-auction-badge {
+        font-size: 9px;
+        padding: 3px 6px;
+    }
+    
+    .item-purchase-info {
+        font-size: 0.7rem;
+    }
+    
+    .current-price {
+        font-size: 1rem;
+    }
+    
+    .start-price {
+        font-size: 0.75rem;
+    }
+}
+
+/* 모바일 세로 모드 - 목록 형태 */
+@media (max-width: 768px) and (orientation: portrait) {
+    .items-grid {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+
+    .item-card {
+        display: flex;
+        flex-direction: row;
+        height: 140px;
+        border-radius: 12px;
+    }
+
+    .item-image-container {
+        width: 140px;
+        height: 140px;
+        flex-shrink: 0;
+    }
+
+    .item-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .item-info {
+        flex: 1;
+        padding: 15px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+    }
+
+    .item-name {
+        font-size: 1rem;
+        margin-bottom: 6px;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .item-price-info {
+        margin-bottom: 6px;
+    }
+
+    .current-price {
+        font-size: 1.1rem;
+        margin-bottom: 2px;
+    }
+
+    .start-price {
+        font-size: 0.75rem;
+    }
+
+    .item-description {
+        font-size: 0.8rem;
+        margin-bottom: 8px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .item-purchase-info {
+        font-size: 0.65rem;
+        margin-bottom: 6px;
+    }
+
+    .item-seller {
+        font-size: 0.75rem;
+        border-top: none;
+        padding-top: 0;
+        margin-top: auto;
+    }
+
+    .item-actions {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        opacity: 1;
+        display: flex;
+        gap: 8px;
+    }
+
+    .bid-btn {
+        padding: 6px 10px;
+        font-size: 0.7rem;
+        border-radius: 4px;
+    }
+    
+    .live-auction-btn {
+        padding: 8px 16px;
+        font-size: 0.8rem;
+        border-radius: 6px;
+    }
+
+    .delete-item-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 0.7rem;
+    }
+
+    .image-count-badge,
+    .bid-count-badge {
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        top: 8px;
+        right: 8px;
+    }
+    
+    .live-auction-badge {
+        font-size: 0.65rem;
+        padding: 2px 6px;
+        top: 8px;
+        left: 8px;
     }
 } 
