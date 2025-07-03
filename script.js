@@ -730,7 +730,7 @@ function renderItems(itemsToRender = items) {
             const bidCount = bids.length;
             
             return `
-                <div class="item-card fade-in" data-id="${item.id}">
+                <div class="item-card fade-in ${item.isLiveAuction && bidCount > 0 ? 'has-live-auction' : ''}" data-id="${item.id}">
                     <div class="item-image-container" onclick="showItemDetails(${item.id})">
                         <img src="${mainImage}" alt="${item.name}" class="item-image">
                         ${imageCount > 1 ? `

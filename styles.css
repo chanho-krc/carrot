@@ -1028,6 +1028,12 @@ form {
     z-index: 10;
 }
 
+/* 현장경매와 입찰 뱃지가 모두 있을 때 입찰 뱃지 위치 조정 */
+.item-card.has-live-auction .bid-count-badge {
+    top: 45px;
+    right: 10px;
+}
+
 /* 현장경매 뱃지 */
 .live-auction-badge {
     position: absolute;
