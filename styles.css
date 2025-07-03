@@ -36,6 +36,58 @@ header .container {
     padding: 1rem 20px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.sort-container-header {
+    display: flex;
+    align-items: center;
+}
+
+.sort-container-header .sort-options {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sort-container-header .sort-options::before {
+    content: "정렬:";
+    font-size: 14px;
+    font-weight: 600;
+    color: #667eea;
+}
+
+.sort-container-header .sort-options select {
+    padding: 8px 12px;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    font-size: 14px;
+    background-color: white;
+    cursor: pointer;
+    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23667eea" d="M2 0L0 2h4zm0 5L0 3h4z"/></svg>');
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px;
+    padding-right: 35px;
+    appearance: none;
+    min-width: 130px;
+    transition: all 0.3s ease;
+    border-color: #667eea;
+}
+
+.sort-container-header .sort-options select:hover {
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+.sort-container-header .sort-options select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
 header h1 {
     color: #667eea;
     font-size: 1.8rem;
@@ -474,59 +526,7 @@ form {
     text-overflow: ellipsis;
 }
 
-/* 정렬 옵션 */
-.sort-container {
-    display: flex;
-    justify-content: flex-end;
-    margin-bottom: 1.5rem;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    background: rgba(255, 255, 255, 0.9);
-    backdrop-filter: blur(10px);
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-}
 
-.sort-options {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.sort-options::before {
-    content: "정렬:";
-    font-size: 14px;
-    font-weight: 600;
-    color: #667eea;
-}
-
-.sort-options select {
-    padding: 8px 12px;
-    border: 2px solid #e9ecef;
-    border-radius: 8px;
-    font-size: 14px;
-    background-color: white;
-    cursor: pointer;
-    background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23667eea" d="M2 0L0 2h4zm0 5L0 3h4z"/></svg>');
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 10px;
-    padding-right: 35px;
-    appearance: none;
-    min-width: 130px;
-    transition: all 0.3s ease;
-    border-color: #667eea;
-}
-
-.sort-options select:hover {
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
-}
-
-.sort-options select:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
 
 /* 물건 그리드 */
 .items-grid {
@@ -863,7 +863,19 @@ form {
         font-size: 1.5rem;
     }
 
+    .header-actions {
+        flex-direction: column;
+        gap: 15px;
+        width: 100%;
+    }
+
+    .sort-container-header {
+        order: 2;
+        align-self: center;
+    }
+
     nav {
+        order: 1;
         width: 100%;
         justify-content: center;
     }
@@ -873,16 +885,11 @@ form {
         font-size: 13px;
     }
 
-    .sort-container {
-        padding: 0.5rem 0.75rem;
-        margin-bottom: 1rem;
-    }
-
-    .sort-options::before {
+    .sort-container-header .sort-options::before {
         font-size: 13px;
     }
 
-    .sort-options select {
+    .sort-container-header .sort-options select {
         padding: 6px 10px;
         font-size: 13px;
         min-width: 120px;
@@ -930,16 +937,11 @@ form {
         grid-template-columns: 1fr;
     }
 
-    .sort-container {
-        padding: 0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .sort-options::before {
+    .sort-container-header .sort-options::before {
         font-size: 12px;
     }
 
-    .sort-options select {
+    .sort-container-header .sort-options select {
         padding: 5px 8px;
         font-size: 12px;
         min-width: 110px;
@@ -1094,7 +1096,7 @@ form {
 
 /* 현장경매와 입찰 뱃지가 모두 있을 때 입찰 뱃지 위치 조정 */
 .item-card.has-live-auction .bid-count-badge {
-    top: 45px;
+    top: 50px;
     right: 10px;
 }
 

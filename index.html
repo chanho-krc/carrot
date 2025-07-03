@@ -37,14 +37,26 @@
     <header>
         <div class="container">
             <h1><i class="fas fa-store"></i> 사내 바자회</h1>
-            <nav>
-                <button id="addItemBtn" class="btn btn-primary">
-                    <i class="fas fa-plus"></i> 물건 등록
-                </button>
-                <button id="adminBtn" class="btn btn-secondary" style="display: none;">
-                    <i class="fas fa-key"></i> 관리자
-                </button>
-            </nav>
+            <div class="header-actions">
+                <div class="sort-container-header">
+                    <div class="sort-options">
+                        <select id="sortSelect">
+                            <option value="latest">최신순</option>
+                            <option value="priceAsc">가격 낮은순</option>
+                            <option value="priceDesc">가격 높은순</option>
+                            <option value="name">이름순</option>
+                        </select>
+                    </div>
+                </div>
+                <nav>
+                    <button id="addItemBtn" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> 물건 등록
+                    </button>
+                    <button id="adminBtn" class="btn btn-secondary" style="display: none;">
+                        <i class="fas fa-key"></i> 관리자
+                    </button>
+                </nav>
+            </div>
         </div>
     </header>
 
@@ -175,17 +187,7 @@
             </div>
         </div>
 
-        <!-- 정렬 옵션 -->
-        <div class="sort-container">
-            <div class="sort-options">
-                <select id="sortSelect">
-                    <option value="latest">최신순</option>
-                    <option value="priceAsc">가격 낮은순</option>
-                    <option value="priceDesc">가격 높은순</option>
-                    <option value="name">이름순</option>
-                </select>
-            </div>
-        </div>
+
 
         <!-- 물건 목록 -->
         <div id="itemsList" class="items-grid">
