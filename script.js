@@ -179,8 +179,29 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM 로드 완료');
     console.log('스크립트 버전: 2024-01-15-Firebase연동');
     
-    // 이벤트 리스너 등록
-    setupEventListeners();
+    // 이벤트 리스너 등록 (지연 실행)
+    setTimeout(() => {
+        console.log('⏰ 이벤트 리스너 설정 시작...');
+        setupEventListeners();
+        
+        // 추가 안전장치: 직접 버튼에 이벤트 설정
+        const submitBtn = document.querySelector('#addItemForm button[type="submit"]');
+        if (submitBtn) {
+            console.log('🔘 등록 버튼 직접 이벤트 설정');
+            submitBtn.addEventListener('click', function(e) {
+                console.log('🔘 등록 버튼 직접 클릭됨');
+                e.preventDefault();
+                
+                const form = document.getElementById('addItemForm');
+                if (form) {
+                    handleAddItem({
+                        preventDefault: () => {},
+                        target: form
+                    });
+                }
+            });
+        }
+    }, 500);
     
     // 관리자 상태 확인 (localStorage에서 - 관리자 상태는 로컬 유지)
     const savedAdminState = localStorage.getItem('adminLoggedIn');
@@ -221,10 +242,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 이벤트 리스너 설정
 function setupEventListeners() {
+    console.log('🔧 이벤트 리스너 설정 함수 시작');
+    
     // 물건 등록 버튼
     const addItemBtn = document.getElementById('addItemBtn');
     if (addItemBtn) {
         addItemBtn.addEventListener('click', openAddItemModal);
+        console.log('✅ 물건 등록 버튼 이벤트 설정');
     }
     
     // 관리자 버튼
@@ -249,13 +273,43 @@ function setupEventListeners() {
         });
     });
     
-    // 물건 등록 폼
+    // 물건 등록 폼 - 여러 방식으로 시도
     const addItemForm = document.getElementById('addItemForm');
     if (addItemForm) {
-        console.log('✅ 등록 폼 이벤트 리스너 설정');
-        addItemForm.addEventListener('submit', handleAddItem);
+        console.log('✅ 등록 폼 찾음 - 이벤트 리스너 설정 중...');
+        
+        // 방법 1: submit 이벤트
+        addItemForm.addEventListener('submit', function(e) {
+            console.log('📝 폼 submit 이벤트 발생');
+            handleAddItem(e);
+        });
+        
+        // 방법 2: 폼 내부 버튼 직접 설정
+        const submitButton = addItemForm.querySelector('button[type="submit"]');
+        if (submitButton) {
+            console.log('✅ submit 버튼 찾음 - 클릭 이벤트 추가 설정');
+            submitButton.addEventListener('click', function(e) {
+                console.log('🔘 submit 버튼 클릭 이벤트 발생');
+                if (!e.defaultPrevented) {
+                    e.preventDefault();
+                    handleAddItem({
+                        preventDefault: () => {},
+                        target: addItemForm
+                    });
+                }
+            });
+        }
+        
+        console.log('✅ 등록 폼 이벤트 리스너 설정 완료');
     } else {
         console.error('❌ 등록 폼을 찾을 수 없음');
+        
+        // 폼을 찾지 못한 경우 모든 폼 요소 확인
+        const allForms = document.querySelectorAll('form');
+        console.log('🔍 페이지의 모든 폼:', allForms.length + '개');
+        allForms.forEach((form, index) => {
+            console.log(`폼 ${index + 1}: ID = ${form.id}, class = ${form.className}`);
+        });
     }
     
 
