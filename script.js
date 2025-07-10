@@ -64,29 +64,45 @@ function showConnectionStatus(message, type) {
 
 // 실시간 데이터 리스너 설정
 function setupRealtimeListener() {
-    const itemsRef = ref(window.database, 'items');
-    onValue(itemsRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data && typeof data === 'object') {
-            // 객체를 배열로 변환 (null 값 제외)
-            currentItems = Object.values(data).filter(item => item !== null);
-        } else {
-            currentItems = [];
+    try {
+        if (!window.database) {
+            throw new Error('Database 객체가 없습니다');
         }
-        sortItems();
-        displayItems();
-        console.log('📱 실시간 데이터 업데이트:', currentItems.length + '개 항목');
         
-        // 데이터 동기화 성공 표시 (첫 로드 후)
-        if (!window.firstLoadComplete) {
-            window.firstLoadComplete = true;
-            showConnectionStatus('모든 기기에서 실시간 동기화됩니다', 'success');
-        }
-    }, (error) => {
-        console.error('❌ Firebase 리스너 오류:', error);
-        showConnectionStatus('실시간 동기화 연결 실패 - 로컬 모드로 전환', 'error');
-        setupLocalStorageFallback();
-    });
+        const itemsRef = ref(window.database, 'items');
+        onValue(itemsRef, (snapshot) => {
+            try {
+                const data = snapshot.val();
+                if (data && typeof data === 'object') {
+                    // 객체를 배열로 변환 (null 값 제외)
+                    currentItems = Object.values(data).filter(item => item !== null);
+                } else {
+                    currentItems = [];
+                }
+                sortItems();
+                displayItems();
+                console.log('📱 실시간 데이터 업데이트:', currentItems.length + '개 항목');
+                
+                // 데이터 동기화 성공 표시 (첫 로드 후)
+                if (!window.firstLoadComplete) {
+                    window.firstLoadComplete = true;
+                    showConnectionStatus('모든 기기에서 실시간 동기화됩니다', 'success');
+                }
+            } catch (snapshotError) {
+                console.error('❌ 스냅샷 처리 오류:', snapshotError);
+            }
+        }, (error) => {
+            console.error('❌ Firebase 리스너 오류:', error);
+            showConnectionStatus('실시간 동기화 연결 실패 - 로컬 모드로 전환', 'error');
+            setupLocalStorageFallback();
+        });
+        
+        console.log('📡 Firebase 실시간 리스너 설정 완료');
+        
+    } catch (error) {
+        console.error('❌ 실시간 리스너 설정 실패:', error);
+        throw error; // 상위 함수에서 처리하도록
+    }
 }
 
 // 로컬스토리지 fallback 설정
@@ -123,19 +139,25 @@ document.addEventListener('DOMContentLoaded', function() {
             firebaseApp: !!window.firebaseApp
         });
         
-        if (window.database) {
-            console.log('✅ Firebase 연결됨');
-            // 연결 상태를 사용자에게 표시
+        // Firebase 연결 상태와 상관없이 안정적으로 작동하도록 수정
+        if (window.database && window.database !== null) {
+            console.log('✅ Firebase 연결됨 - 실시간 동기화 시도');
             showConnectionStatus('Firebase 연결됨 - 실시간 동기화 활성화', 'success');
-            setupRealtimeListener();
+            
+            try {
+                setupRealtimeListener();
+            } catch (error) {
+                console.error('❌ Firebase 실시간 리스너 설정 실패:', error);
+                console.log('📱 로컬 모드로 전환');
+                showConnectionStatus('실시간 동기화 실패 - 로컬 모드로 작동', 'error');
+                setupLocalStorageFallback();
+            }
         } else {
-            console.error('❌ Firebase 초기화 실패');
-            console.error('Firebase 객체 확인:', window.database);
-            showConnectionStatus('데이터베이스 연결 실패 - 로컬 모드로 작동', 'error');
-            // Firebase 실패시 로컬스토리지로 fallback
+            console.log('📱 Firebase 연결 없음 - 로컬 모드로 시작');
+            showConnectionStatus('로컬 모드로 작동 중 (오프라인)', 'error');
             setupLocalStorageFallback();
         }
-    }, 1000);
+    }, 1500);
 });
 
 // 이벤트 리스너 설정
@@ -498,28 +520,9 @@ async function handleAddItem(event) {
         console.log('💾 저장 시작...');
         console.log('🔥 Firebase 연결 상태:', !!window.database);
         
-        try {
-            if (window.database) {
-                console.log('🔥 Firebase에 저장 시도 중...');
-                // Firebase에 저장 시도
-                const items = await loadFromFirebase('items', {});
-                console.log('📖 기존 데이터 로드 완료:', Object.keys(items).length + '개 항목');
-                
-                items[itemData.id] = itemData;
-                console.log('➕ 새 데이터 추가 완료, ID:', itemData.id);
-                
-                saved = await saveToFirebase('items', items);
-                if (saved) {
-                    console.log('✅ Firebase에 저장 완료');
-                } else {
-                    throw new Error('Firebase 저장 실패');
-                }
-            } else {
-                throw new Error('Firebase 연결 없음');
-            }
-        } catch (firebaseError) {
-            console.error('❌ Firebase 저장 실패:', firebaseError);
-            console.log('📱 localStorage로 저장 시도...');
+        // Firebase가 제대로 연결되지 않았으므로 localStorage를 우선 사용
+        if (!window.database || window.database === null) {
+            console.log('📱 Firebase 연결 없음 - localStorage로 저장');
             
             try {
                 // localStorage에 저장
@@ -534,8 +537,47 @@ async function handleAddItem(event) {
                 sortItems();
                 displayItems();
             } catch (localError) {
-                console.error('❌ localStorage 저장도 실패:', localError);
+                console.error('❌ localStorage 저장 실패:', localError);
                 saved = false;
+            }
+        } else {
+            // Firebase 시도
+            try {
+                console.log('🔥 Firebase에 저장 시도 중...');
+                
+                // Firebase에 저장 시도
+                const items = await loadFromFirebase('items', {});
+                console.log('📖 기존 데이터 로드 완료:', Object.keys(items).length + '개 항목');
+                
+                items[itemData.id] = itemData;
+                console.log('➕ 새 데이터 추가 완료, ID:', itemData.id);
+                
+                saved = await saveToFirebase('items', items);
+                if (saved) {
+                    console.log('✅ Firebase에 저장 완료');
+                } else {
+                    throw new Error('Firebase 저장 실패');
+                }
+            } catch (firebaseError) {
+                console.error('❌ Firebase 저장 실패:', firebaseError);
+                console.log('📱 localStorage로 저장 시도...');
+                
+                try {
+                    // localStorage에 저장
+                    const items = JSON.parse(localStorage.getItem('items') || '[]');
+                    items.push(itemData);
+                    localStorage.setItem('items', JSON.stringify(items));
+                    saved = true;
+                    console.log('✅ localStorage에 저장 완료');
+                    
+                    // currentItems 업데이트 (실시간 리스너가 없으므로)
+                    currentItems.push(itemData);
+                    sortItems();
+                    displayItems();
+                } catch (localError) {
+                    console.error('❌ localStorage 저장도 실패:', localError);
+                    saved = false;
+                }
             }
         }
         
