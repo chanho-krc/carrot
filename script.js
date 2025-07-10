@@ -72,13 +72,70 @@ function setupEventListeners() {
 // localStorage에서 데이터 로드
 function loadItemsFromStorage() {
     try {
+        console.log('🔍 localStorage 체크 시작...');
+        
+        // localStorage 지원 확인
+        if (typeof(Storage) === "undefined") {
+            console.error('❌ localStorage 지원 안됨');
+            currentItems = [];
+            displayItems();
+            return;
+        }
+        
         const storedItems = localStorage.getItem('items');
+        console.log('📦 localStorage raw 데이터:', storedItems);
+        
         if (storedItems) {
             currentItems = JSON.parse(storedItems);
             console.log('📱 localStorage에서 로드:', currentItems.length + '개 제품');
+            console.log('📋 로드된 제품들:', currentItems);
         } else {
-            currentItems = [];
-            console.log('📱 새로운 시작 - 저장된 제품 없음');
+            // 테스트용 샘플 데이터
+            currentItems = [
+                {
+                    id: 'sample1',
+                    itemName: '사무용 의자',
+                    usageYears: '2',
+                    purchasePrice: '150000',
+                    itemPrice: '50000',
+                    itemDescription: '깔끔한 사무용 의자입니다. 쿠션감이 좋습니다.',
+                    sellerName: '홍길동',
+                    contactInfo: '010-1234-5678',
+                    images: [],
+                    timestamp: Date.now() - 86400000, // 하루 전
+                    dateAdded: new Date(Date.now() - 86400000).toLocaleString('ko-KR')
+                },
+                {
+                    id: 'sample2',
+                    itemName: '노트북 거치대',
+                    usageYears: '1',
+                    purchasePrice: '30000',
+                    itemPrice: '15000',
+                    itemDescription: '알루미늄 재질의 노트북 거치대입니다.',
+                    sellerName: '김철수',
+                    contactInfo: '010-5678-1234',
+                    images: [],
+                    timestamp: Date.now() - 43200000, // 12시간 전
+                    dateAdded: new Date(Date.now() - 43200000).toLocaleString('ko-KR')
+                }
+            ];
+            console.log('📱 샘플 데이터 로드 - 테스트용');
+            
+            // 샘플 데이터를 localStorage에 저장
+            localStorage.setItem('items', JSON.stringify(currentItems));
+        }
+        
+        // 컨테이너 확인
+        const container = document.getElementById('itemsContainer');
+        if (!container) {
+            console.error('❌ itemsContainer 요소를 찾을 수 없음');
+            // 다른 가능한 컨테이너 찾기
+            const itemsList = document.getElementById('itemsList');
+            if (itemsList) {
+                console.log('✅ itemsList 컨테이너 발견');
+            }
+        } else {
+            console.log('✅ itemsContainer 발견');
         }
         
         sortItems();
@@ -146,9 +203,13 @@ async function handleAddItem() {
         // 성공 메시지 (콘솔만)
         console.log('🎉 제품이 성공적으로 등록되었습니다!');
         
-        // 등록 탭에서 목록 탭으로 자연스럽게 전환
+        // 등록 완료 후 모달 닫기
         setTimeout(() => {
-            document.getElementById('listTab')?.click();
+            const modal = document.getElementById('addItemModal');
+            if (modal) {
+                modal.style.display = 'none';
+                console.log('📋 등록 모달 닫기');
+            }
         }, 100);
         
     } catch (error) {
@@ -159,34 +220,56 @@ async function handleAddItem() {
 
 // 제품 목록 표시
 function displayItems() {
-    const container = document.getElementById('itemsContainer');
-    if (!container) return;
+    console.log('🖼️ 화면 업데이트 시작 - 제품 수:', currentItems.length);
     
-    if (currentItems.length === 0) {
-        container.innerHTML = '<div class="no-items">등록된 제품이 없습니다.</div>';
+    // 실제 HTML 구조에 맞는 컨테이너 찾기
+    let container = document.getElementById('itemsContainer');
+    if (!container) {
+        container = document.getElementById('itemsList');
+        console.log('📋 itemsList 컨테이너 사용');
+    }
+    
+    if (!container) {
+        console.error('❌ 컨테이너를 찾을 수 없음');
         return;
     }
     
+    if (currentItems.length === 0) {
+        container.innerHTML = '<div class="no-items">등록된 제품이 없습니다.</div>';
+        console.log('📭 빈 상태 표시');
+        
+        // 빈 상태 메시지 표시
+        const emptyState = document.getElementById('emptyState');
+        if (emptyState) {
+            emptyState.style.display = 'block';
+        }
+        return;
+    }
+    
+    // 빈 상태 숨기기
+    const emptyState = document.getElementById('emptyState');
+    if (emptyState) {
+        emptyState.style.display = 'none';
+    }
+    
     container.innerHTML = currentItems.map(item => `
-        <div class="item-card" data-id="${item.id}">
-            <div class="item-image">
-                <img src="${item.images && item.images.length > 0 ? item.images[0] : 'data:image/svg+xml;charset=UTF-8,%3Csvg width="200" height="200" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="200" height="200" fill="%23f0f0f0"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="14" fill="%23999"%3E이미지 없음%3C/text%3E%3C/svg%3E'}" alt="${item.itemName}" onerror="this.src='data:image/svg+xml;charset=UTF-8,%3Csvg width=\\"200\\" height=\\"200\\" xmlns=\\"http://www.w3.org/2000/svg\\"%3E%3Crect width=\\"200\\" height=\\"200\\" fill=\\"%23f0f0f0\\"/%3E%3Ctext x=\\"50%\\" y=\\"50%\\" text-anchor=\\"middle\\" dy=\\".3em\\" font-size=\\"14\\" fill=\\"%23999\\"%3E이미지 없음%3C/text%3E%3C/svg%3E'">
-            </div>
+        <div class="item-card" data-id="${item.id}" style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px;">
             <div class="item-info">
-                <h3>${item.itemName}</h3>
-                <p class="price">₩${parseInt(item.itemPrice).toLocaleString()}</p>
-                <p class="usage">사용기간: ${item.usageYears}년</p>
-                <p class="description">${item.itemDescription}</p>
-                <p class="seller">판매자: ${item.sellerName}</p>
-                <p class="contact">연락처: ${item.contactInfo}</p>
-                <p class="date">등록일: ${item.dateAdded}</p>
+                <h3 style="margin: 0 0 10px 0; color: #333;">${item.itemName}</h3>
+                <p style="font-size: 18px; color: #e74c3c; font-weight: bold; margin: 5px 0;">₩${parseInt(item.itemPrice).toLocaleString()}</p>
+                <p style="margin: 5px 0; color: #666;">사용기간: ${item.usageYears}년</p>
+                <p style="margin: 5px 0; color: #666;">${item.itemDescription}</p>
+                <p style="margin: 5px 0; color: #666;">판매자: ${item.sellerName}</p>
+                <p style="margin: 5px 0; color: #666;">등록일: ${item.dateAdded}</p>
             </div>
-            <div class="item-actions">
-                <button onclick="editItem('${item.id}')" class="edit-btn">수정</button>
-                <button onclick="deleteItem('${item.id}')" class="delete-btn">삭제</button>
+            <div class="item-actions" style="margin-top: 10px;">
+                <button onclick="editItem('${item.id}')" style="margin-right: 10px; padding: 5px 10px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer;">수정</button>
+                <button onclick="deleteItem('${item.id}')" style="padding: 5px 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">삭제</button>
             </div>
         </div>
     `).join('');
+    
+    console.log('✅ 화면 업데이트 완료 - 제품 표시됨');
 }
 
 // 제품 정렬
@@ -256,32 +339,32 @@ function editItem(id) {
     document.getElementById('sellerName').value = item.sellerName;
     document.getElementById('contactInfo').value = item.contactInfo;
     
-    // 등록 탭으로 이동
-    document.getElementById('addTab').click();
+    // 등록 모달 열기
+    showAddItemModal();
     
     // 버튼 텍스트 변경
-    document.getElementById('addBtn').textContent = '수정하기';
+    const addBtn = document.getElementById('addBtn');
+    if (addBtn) {
+        addBtn.textContent = '수정하기';
+    }
     
     console.log('✏️ 수정 모드 활성화:', id);
 }
 
-// 탭 전환
-function switchTab(tabName) {
-    // 탭 버튼 활성화
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    document.getElementById(tabName + 'Tab').classList.add('active');
-    
-    // 탭 컨텐츠 표시
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.remove('active');
-    });
-    document.getElementById(tabName + 'Content').classList.add('active');
-    
-    // 목록 탭으로 이동시 새로고침
-    if (tabName === 'list') {
-        loadItemsFromStorage();
+// 모달 기반 UI를 위한 함수들
+function showAddItemModal() {
+    const modal = document.getElementById('addItemModal');
+    if (modal) {
+        modal.style.display = 'block';
+        console.log('📝 등록 모달 열기');
+    }
+}
+
+function hideAddItemModal() {
+    const modal = document.getElementById('addItemModal');
+    if (modal) {
+        modal.style.display = 'none';
+        console.log('📋 등록 모달 닫기');
     }
 }
 
