@@ -760,27 +760,7 @@ main {
     margin-bottom: 2px;
 }
 
-.carrot-seller-location {
-    font-size: 13px;
-    color: #999;
-}
 
-.carrot-seller-temp {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-}
-
-.carrot-temp-value {
-    font-size: 14px;
-    font-weight: 600;
-    color: #FF8A3D;
-}
-
-.carrot-temp-icon {
-    color: #FFD93D;
-    font-size: 16px;
-}
 
 /* 상품 정보 섹션 */
 .carrot-product-section {
@@ -848,80 +828,7 @@ main {
     color: #999;
 }
 
-/* 하단 액션 버튼 */
-.carrot-bottom-actions {
-    position: sticky;
-    bottom: 0;
-    background: #2d2d2d;
-    border-top: 1px solid #444;
-    padding: 16px 20px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
 
-.carrot-heart-btn {
-    width: 48px;
-    height: 48px;
-    border: 1px solid #555;
-    border-radius: 8px;
-    background: #333;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.carrot-heart-btn:hover {
-    background: #444;
-}
-
-.carrot-heart-btn i {
-    font-size: 20px;
-    color: #ccc;
-}
-
-.carrot-message-section {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.carrot-message-input {
-    flex: 1;
-    height: 48px;
-    padding: 0 16px;
-    border: 1px solid #555;
-    border-radius: 8px;
-    font-size: 14px;
-    background: #333;
-    color: #ffffff;
-}
-
-.carrot-message-input:focus {
-    outline: none;
-    border-color: #FF8A3D;
-    background: #444;
-}
-
-.carrot-send-btn {
-    height: 48px;
-    padding: 0 24px;
-    background: #FF8A3D;
-    color: white;
-    border: none;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s ease;
-}
-
-.carrot-send-btn:hover {
-    background: #FF7A2D;
-}
 
 /* 기존 액션 버튼들을 숨김 */
 .carrot-detail-content .detail-actions {

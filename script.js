@@ -661,11 +661,6 @@ function createItemDetailContent(item) {
                     </div>
                     <div class="carrot-seller-details">
                         <div class="carrot-seller-name">${item.sellerName}</div>
-                        <div class="carrot-seller-location">수원시 팔달구 인계동</div>
-                    </div>
-                    <div class="carrot-seller-temp">
-                        <span class="carrot-temp-value">36.5°C</span>
-                        <i class="fas fa-smile carrot-temp-icon"></i>
                     </div>
                 </div>
             </div>
@@ -685,10 +680,6 @@ function createItemDetailContent(item) {
                 </div>
                 
                 <div class="carrot-product-stats">
-                    <span>관심 ${Math.floor(Math.random() * 15) + 1}</span>
-                    <span>•</span>
-                    <span>채팅 ${Math.floor(Math.random() * 5)}</span>
-                    <span>•</span>
                     <span>조회 ${Math.floor(Math.random() * 100) + 20}</span>
                 </div>
                 
@@ -697,16 +688,7 @@ function createItemDetailContent(item) {
                 ${contactInfo()}
             </div>
             
-            <!-- 하단 액션 버튼 -->
-            <div class="carrot-bottom-actions">
-                <button class="carrot-heart-btn">
-                    <i class="far fa-heart"></i>
-                </button>
-                <div class="carrot-message-section">
-                    <input type="text" placeholder="안녕하세요. 구매 가능할까요?" class="carrot-message-input">
-                    <button class="carrot-send-btn">보내기</button>
-                </div>
-            </div>
+
             
             ${actionButtons()}
         </div>
