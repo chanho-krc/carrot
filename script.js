@@ -252,7 +252,10 @@ function setupEventListeners() {
     // 물건 등록 폼
     const addItemForm = document.getElementById('addItemForm');
     if (addItemForm) {
+        console.log('✅ 등록 폼 이벤트 리스너 설정');
         addItemForm.addEventListener('submit', handleAddItem);
+    } else {
+        console.error('❌ 등록 폼을 찾을 수 없음');
     }
     
 
@@ -496,6 +499,7 @@ async function handleAddItem(event) {
     event.preventDefault();
     
     console.log('📝 등록하기 버튼 클릭됨');
+    alert('🚨 등록 함수 호출됨! (디버깅용)');
     
     const formData = new FormData(event.target);
     const imageFiles = document.getElementById('itemImage').files;
@@ -527,13 +531,31 @@ async function handleAddItem(event) {
     }
     
     try {
-        // 이미지 업로드 및 압축 (이미지가 없어도 빈 배열로 처리)
+        // 임시로 이미지 처리 건너뛰기 (문제 해결을 위해)
+        console.log('⚠️ 임시로 이미지 처리 건너뛰기 - 텍스트만 등록');
         let imageUrls = [];
+        
+        // 나중에 이미지 처리 복원할 예정
+        /*
         if (imageFiles.length > 0) {
-            imageUrls = await Promise.all(
-                Array.from(imageFiles).map(file => compressAndConvertToBase64(file))
-            );
+            console.log('🖼️ 이미지 압축 시작:', imageFiles.length + '개');
+            try {
+                imageUrls = await Promise.all(
+                    Array.from(imageFiles).map((file, index) => {
+                        console.log(`🖼️ 이미지 ${index + 1} 압축 중:`, file.name);
+                        return compressAndConvertToBase64(file);
+                    })
+                );
+                console.log('✅ 이미지 압축 완료:', imageUrls.length + '개');
+            } catch (imageError) {
+                console.error('❌ 이미지 압축 실패:', imageError);
+                alert('이미지 처리 중 오류가 발생했습니다. 이미지 없이 등록하시겠습니까?');
+                imageUrls = []; // 이미지 없이 진행
+            }
+        } else {
+            console.log('📷 이미지 없음 - 텍스트만 등록');
         }
+        */
         
         // 사용기간 텍스트 생성
         const yearsValue = formData.get('usageYears');
