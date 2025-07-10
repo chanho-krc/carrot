@@ -282,6 +282,28 @@ main {
     height: 80px;
 }
 
+/* PC에서 이미지 크기 4배 확대 */
+@media (min-width: 1024px) {
+    .carrot-item-image {
+        width: 320px;
+        height: 320px;
+    }
+    
+    .carrot-item-image.carrot-no-image {
+        width: 320px;
+        height: 320px;
+        font-size: 80px;
+    }
+    
+    .carrot-item {
+        align-items: flex-start;
+    }
+    
+    .carrot-item-content {
+        padding-top: 8px;
+    }
+}
+
 .image-count {
     position: absolute;
     top: 6px;
@@ -323,17 +345,14 @@ main {
     transform: translateY(-50%);
 }
 
-.carrot-item-location {
+.carrot-item-time {
     font-size: 13px;
     color: #999;
     margin-bottom: 6px;
-    display: flex;
-    align-items: center;
-    gap: 4px;
 }
 
-.carrot-item-location i {
-    font-size: 11px;
+.carrot-item-time span {
+    color: #888;
 }
 
 .carrot-item-price {
@@ -341,24 +360,6 @@ main {
     font-weight: 700;
     color: #ffffff;
     margin-bottom: 6px;
-}
-
-.carrot-item-stats {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-}
-
-.carrot-stat {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 13px;
-    color: #999;
-}
-
-.carrot-stat i {
-    font-size: 12px;
 }
 
 /* 거래완료 버튼 */

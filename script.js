@@ -238,6 +238,13 @@ function handleFileSelection() {
     const selectedFilesList = document.getElementById('selectedFilesList');
     const imagePreview = document.getElementById('imagePreview');
     
+    // 최대 10장 제한
+    if (fileInput.files.length > 10) {
+        alert('최대 10장까지만 업로드할 수 있습니다.');
+        fileInput.value = ''; // 파일 선택 초기화
+        return;
+    }
+    
     if (fileInput.files.length > 0) {
         selectedFilesList.innerHTML = '';
         imagePreview.innerHTML = '';
@@ -466,15 +473,7 @@ function createItemCard(item) {
              <i class="fas fa-image"></i>
            </div>`;
     
-    // 위치 정보 (랜덤으로 생성)
-    const locations = ['인계동', '영통구', '수원시', '팔달구', '장안구', '연무동', '매탄동', '권선구'];
-    const distance = `${(Math.random() * 5 + 0.1).toFixed(1)}km`;
-    const location = locations[Math.floor(Math.random() * locations.length)];
     const timeAgo = getTimeAgo(item.timestamp);
-    
-    // 좋아요, 채팅 수 (랜덤으로 생성)
-    const likeCount = Math.floor(Math.random() * 50) + 1;
-    const chatCount = Math.floor(Math.random() * 30) + 1;
     
     // 관리자 액션 버튼들
     const adminActions = () => {
@@ -501,19 +500,10 @@ function createItemCard(item) {
             ${imageHtml}
             <div class="carrot-item-content">
                 <h3 class="carrot-item-title">${item.name}${isSold ? ' (거래완료)' : ''}</h3>
-                <div class="carrot-item-location">
-                    <i class="fas fa-map-marker-alt"></i>
-                    <span>${distance} • ${location} • ${timeAgo}</span>
+                <div class="carrot-item-time">
+                    <span>${timeAgo}</span>
                 </div>
                 <div class="carrot-item-price">${item.price.toLocaleString()}원</div>
-                <div class="carrot-item-stats">
-                    <span class="carrot-stat">
-                        <i class="fas fa-comment"></i> ${chatCount}
-                    </span>
-                    <span class="carrot-stat">
-                        <i class="fas fa-heart"></i> ${likeCount}
-                    </span>
-                </div>
                 ${!isSold && !isAdmin ? `
                     <button onclick="event.stopPropagation(); openCompleteModal('${item.id}')" class="carrot-complete-btn" title="거래완료">
                         <i class="fas fa-check"></i> 거래완료
