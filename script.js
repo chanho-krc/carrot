@@ -1,5 +1,5 @@
-// Firebase 모듈 가져오기 (로컬 테스트용 주석 처리)
-// import { ref, set, get, push, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+// Firebase 모듈 가져오기
+import { ref, set, get, push, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
 
 // 전역 변수
 let isAdmin = false;
@@ -8,48 +8,78 @@ let currentItemIdForComplete = null;
 let currentItemForAuth = null; // 인증이 필요한 아이템
 let authAction = null; // 'complete' 또는 'cancel'
 
-// 로컬 스토리지 헬퍼 함수들
+// Firebase 헬퍼 함수들
 function generateId() {
     return Date.now().toString() + Math.random().toString(36).substr(2, 9);
 }
 
-function saveToLocalStorage(key, data) {
+async function saveToFirebase(key, data) {
     try {
-        localStorage.setItem(key, JSON.stringify(data));
+        const dbRef = ref(window.database, key);
+        await set(dbRef, data);
         return true;
     } catch (error) {
-        console.error('로컬 스토리지 저장 실패:', error);
+        console.error('Firebase 저장 실패:', error);
         return false;
     }
 }
 
-function loadFromLocalStorage(key, defaultValue = null) {
+async function loadFromFirebase(key, defaultValue = null) {
     try {
-        const data = localStorage.getItem(key);
-        return data ? JSON.parse(data) : defaultValue;
+        const dbRef = ref(window.database, key);
+        const snapshot = await get(dbRef);
+        return snapshot.exists() ? snapshot.val() : defaultValue;
     } catch (error) {
-        console.error('로컬 스토리지 로드 실패:', error);
+        console.error('Firebase 로드 실패:', error);
         return defaultValue;
     }
+}
+
+// 실시간 데이터 리스너 설정
+function setupRealtimeListener() {
+    const itemsRef = ref(window.database, 'items');
+    onValue(itemsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data && typeof data === 'object') {
+            // 객체를 배열로 변환 (null 값 제외)
+            currentItems = Object.values(data).filter(item => item !== null);
+        } else {
+            currentItems = [];
+        }
+        sortItems();
+        displayItems();
+        console.log('📱 실시간 데이터 업데이트:', currentItems.length + '개 항목');
+    }, (error) => {
+        console.error('❌ Firebase 리스너 오류:', error);
+        alert('실시간 데이터 동기화에 문제가 발생했습니다.');
+    });
 }
 
 // DOM이 로드되면 실행
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM 로드 완료');
-    console.log('스크립트 버전: 2024-01-15-예약기능제거');
+    console.log('스크립트 버전: 2024-01-15-Firebase연동');
     
     // 이벤트 리스너 등록
     setupEventListeners();
     
-    // 관리자 상태 확인 (localStorage에서)
+    // 관리자 상태 확인 (localStorage에서 - 관리자 상태는 로컬 유지)
     const savedAdminState = localStorage.getItem('adminLoggedIn');
     if (savedAdminState === 'true') {
         isAdmin = true;
         updateAdminUI();
     }
     
-    // 로컬 스토리지에서 데이터 로드
-    loadItems();
+    // Firebase 연결 확인 후 실시간 리스너 설정
+    setTimeout(() => {
+        if (window.database) {
+            console.log('🔥 Firebase 연결됨');
+            setupRealtimeListener();
+        } else {
+            console.error('❌ Firebase 초기화 실패');
+            alert('데이터베이스 연결에 실패했습니다.');
+        }
+    }, 1000);
 });
 
 // 이벤트 리스너 설정
@@ -367,10 +397,10 @@ async function handleAddItem(event) {
             status: 'available' // available, sold
         };
         
-        // 로컬 스토리지에 저장
-        const items = loadFromLocalStorage('items', []);
-        items.push(itemData);
-        const saved = saveToLocalStorage('items', items);
+        // Firebase에 저장
+        const items = await loadFromFirebase('items', {});
+        items[itemData.id] = itemData;
+        const saved = await saveToFirebase('items', items);
         
         if (saved) {
             alert('물건이 성공적으로 등록되었습니다!');
@@ -379,10 +409,9 @@ async function handleAddItem(event) {
             document.getElementById('imagePreview').innerHTML = '';
             document.getElementById('selectedFilesList').innerHTML = '';
             
-            // 목록 새로고침
-            loadItems();
+            console.log('📱 새 아이템 등록 완료:', itemData.name);
         } else {
-            throw new Error('로컬 스토리지 저장에 실패했습니다.');
+            throw new Error('데이터베이스 저장에 실패했습니다.');
         }
         
     } catch (error) {
@@ -433,11 +462,8 @@ function compressAndConvertToBase64(file) {
 
 
 
-// 물건 목록 로드
+// 물건 목록 로드 (Firebase 실시간 리스너가 처리하므로 정렬과 표시만)
 function loadItems() {
-    const items = loadFromLocalStorage('items', []);
-    currentItems = items;
-    
     sortItems();
     displayItems();
 }
@@ -930,22 +956,19 @@ async function confirmCompleteTransaction() {
     }
     
     try {
-        const items = loadFromLocalStorage('items', []);
-        console.log('📦 저장된 아이템 개수:', items.length);
+        const items = await loadFromFirebase('items', {});
+        console.log('📦 저장된 아이템 개수:', Object.keys(items).length);
         
-        const itemIndex = items.findIndex(item => item.id === currentItemIdForComplete);
-        console.log('🔍 찾은 아이템 인덱스:', itemIndex);
-        
-        if (itemIndex !== -1) {
-            const itemName = items[itemIndex].name;
-            console.log('📝 변경 전 상태:', items[itemIndex].status);
+        if (items[currentItemIdForComplete]) {
+            const itemName = items[currentItemIdForComplete].name;
+            console.log('📝 변경 전 상태:', items[currentItemIdForComplete].status);
             
             // 상태를 sold로 변경
-            items[itemIndex].status = 'sold';
-            console.log('✅ 변경 후 상태:', items[itemIndex].status);
+            items[currentItemIdForComplete].status = 'sold';
+            console.log('✅ 변경 후 상태:', items[currentItemIdForComplete].status);
             
-            // 저장 시도
-            const saveResult = saveToLocalStorage('items', items);
+            // Firebase에 저장
+            const saveResult = await saveToFirebase('items', items);
             console.log('💾 저장 결과:', saveResult);
             
             if (saveResult) {
@@ -960,13 +983,7 @@ async function confirmCompleteTransaction() {
                     detailModal.style.display = 'none';
                 }
                 
-                // 목록 새로고침 - 강제로 다시 로드
-                console.log('🔄 UI 업데이트 시작');
-                const updatedItems = loadFromLocalStorage('items', []);
-                currentItems = updatedItems;
-                console.log('📋 업데이트된 currentItems:', currentItems.length);
-                displayItems();
-                console.log('✅ UI 업데이트 완료');
+                console.log('✅ 거래완료 처리 완료 - 실시간 리스너가 UI 업데이트');
                 
                 return true;
             } else {
@@ -996,14 +1013,19 @@ async function deleteItem(itemId) {
     
     if (confirm('정말로 이 물건을 삭제하시겠습니까?')) {
         try {
-            const items = loadFromLocalStorage('items', []);
-            const filteredItems = items.filter(item => item.id !== itemId);
-            saveToLocalStorage('items', filteredItems);
+            const items = await loadFromFirebase('items', {});
+            delete items[itemId];
+            await saveToFirebase('items', items);
             
             alert('물건이 삭제되었습니다.');
             
-            // 목록 새로고침
-            loadItems();
+            // 모달 닫기
+            const detailModal = document.getElementById('itemDetailModal');
+            if (detailModal) {
+                detailModal.style.display = 'none';
+            }
+            
+            console.log('✅ 삭제 완료 - 실시간 리스너가 UI 업데이트');
         } catch (error) {
             console.error('삭제 중 오류 발생:', error);
             alert('삭제 중 오류가 발생했습니다.');
@@ -1098,21 +1120,20 @@ function updateAdminUI() {
 // 디버깅용 테스트 함수들 (개발자 도구에서 사용)
 window.testComplete = {
     // 현재 상태 확인
-    checkStatus: () => {
+    checkStatus: async () => {
         console.log('=== 현재 상태 ===');
         console.log('관리자 모드:', isAdmin);
-        console.log('저장된 아이템 수:', loadFromLocalStorage('items', []).length);
+        const items = await loadFromFirebase('items', {});
+        console.log('저장된 아이템 수:', Object.keys(items).length);
         console.log('현재 아이템 수:', currentItems.length);
         console.log('currentItemIdForComplete:', currentItemIdForComplete);
         console.log('currentItemForAuth:', currentItemForAuth);
         console.log('authAction:', authAction);
-        
-        const items = loadFromLocalStorage('items', []);
         console.log('저장된 아이템들:', items);
     },
     
     // 샘플 아이템 추가 (테스트용)
-    addTestItem: () => {
+    addTestItem: async () => {
         const testItem = {
             id: generateId(),
             name: '테스트 물건',
@@ -1129,10 +1150,9 @@ window.testComplete = {
             status: 'available'
         };
         
-        const items = loadFromLocalStorage('items', []);
-        items.push(testItem);
-        saveToLocalStorage('items', items);
-        loadItems();
+        const items = await loadFromFirebase('items', {});
+        items[testItem.id] = testItem;
+        await saveToFirebase('items', items);
         
         console.log('✅ 테스트 아이템 추가 완료');
         console.log('📋 아이템 정보:', testItem);
@@ -1143,9 +1163,8 @@ window.testComplete = {
     },
     
     // 모든 데이터 삭제
-    clearAll: () => {
-        localStorage.removeItem('items');
-        loadItems();
+    clearAll: async () => {
+        await saveToFirebase('items', {});
         console.log('✅ 모든 데이터 삭제 완료');
     }
 };
