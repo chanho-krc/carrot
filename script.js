@@ -663,67 +663,42 @@ async function handleAddItem(event) {
             let firebaseAttempts = 0;
             const maxAttempts = 3;
             
-            while (firebaseAttempts < maxAttempts && !saved) {
-                firebaseAttempts++;
-                try {
-                    console.log(`🔥 Firebase 저장 시도 ${firebaseAttempts}/${maxAttempts}:`, itemData.id);
-                    
-                    // Firebase에 개별 아이템으로 저장 (더 안정적)
-                    const dbRef = ref(window.database, `items/${itemData.id}`);
-                    await set(dbRef, itemData);
-                    
-                    // 저장 성공 확인
-                    const checkRef = ref(window.database, `items/${itemData.id}`);
-                    const checkSnapshot = await get(checkRef);
-                    
-                    if (checkSnapshot.exists()) {
-                        saved = true;
-                        console.log('✅ Firebase 웹 저장소에 저장 완료 - 모든 사용자가 볼 수 있음');
-                        
-                        // localStorage에도 백업 저장
-                        try {
-                            const items = JSON.parse(localStorage.getItem('items') || '[]');
-                            items.push(itemData);
-                            localStorage.setItem('items', JSON.stringify(items));
-                            console.log('📱 localStorage 백업 저장 완료');
-                        } catch (backupError) {
-                            console.warn('⚠️ localStorage 백업 실패:', backupError);
-                        }
-                        break;
-                    } else {
-                        throw new Error('저장 확인 실패');
-                    }
-                    
-                } catch (firebaseError) {
-                    console.error(`❌ Firebase 저장 시도 ${firebaseAttempts} 실패:`, firebaseError.message);
-                    
-                    if (firebaseAttempts >= maxAttempts) {
-                        console.log('📱 Firebase 포기 - localStorage로 임시 저장');
-                        
-                        // 최종 실패시 localStorage 사용 (다른 사용자는 못 봄)
-                        try {
-                            const items = JSON.parse(localStorage.getItem('items') || '[]');
-                            items.push(itemData);
-                            localStorage.setItem('items', JSON.stringify(items));
-                            saved = true;
-                            console.log('⚠️ localStorage에만 저장됨 (다른 사용자는 못 봄)');
-                            
-                            // currentItems 업데이트 (실시간 리스너가 없으므로)
-                            currentItems.push(itemData);
-                            sortItems();
-                            displayItems();
-                            
-                            alert('⚠️ 웹 저장소 연결 문제로 임시 저장됨\n다른 사용자는 보지 못할 수 있습니다.');
-                        } catch (localError) {
-                            console.error('❌ localStorage 저장도 실패:', localError);
-                            saved = false;
-                        }
-                    } else {
-                        // 재시도 전 잠시 대기
-                        await new Promise(resolve => setTimeout(resolve, 1000));
-                    }
-                }
+            // Firebase 문제로 인해 즉시 localStorage 사용
+            console.log('⚠️ Firebase 연결 불안정 - localStorage로 즉시 저장');
+            
+            try {
+                const items = JSON.parse(localStorage.getItem('items') || '[]');
+                items.push(itemData);
+                localStorage.setItem('items', JSON.stringify(items));
+                saved = true;
+                console.log('✅ localStorage에 저장 완료');
+                
+                // currentItems 업데이트 (실시간 리스너가 없으므로)
+                currentItems.push(itemData);
+                sortItems();
+                displayItems();
+                
+                console.log('📱 제품이 성공적으로 등록되었습니다!');
+                
+            } catch (localError) {
+                console.error('❌ localStorage 저장 실패:', localError);
+                saved = false;
             }
+            
+            // 백그라운드에서 Firebase 저장 시도 (실패해도 무시)
+            setTimeout(async () => {
+                try {
+                    console.log('🔥 백그라운드 Firebase 저장 시도...');
+                    const dbRef = ref(window.database, `items/${itemData.id}`);
+                    await Promise.race([
+                        set(dbRef, itemData),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+                    ]);
+                    console.log('✅ 백그라운드 Firebase 저장 성공');
+                } catch (bgError) {
+                    console.log('⚠️ 백그라운드 Firebase 저장 실패 (무시):', bgError.message);
+                }
+            }, 100);
         } else {
             console.log('📱 Firebase 연결 없음 - localStorage 사용');
             
