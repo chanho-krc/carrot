@@ -1,1633 +1,1192 @@
+// Firebase 모듈 가져오기 (로컬 테스트용 주석 처리)
+// import { ref, set, get, push, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+
 // 전역 변수
-let items = [];
-let selectedFiles = []; // 선택된 파일들을 저장하는 배열
-let isAdmin = false; // 관리자 상태
+let isAdmin = false;
+let currentItems = [];
+let currentItemIdForComplete = null;
+let currentItemForAuth = null; // 인증이 필요한 아이템
+let authAction = null; // 'complete' 또는 'cancel'
 
-// Firebase 관련 함수들
-async function loadItemsFromFirebase() {
-    if (!window.firebase) {
-        console.log('Firebase가 아직 로드되지 않았습니다. 재시도 중...');
-        setTimeout(loadItemsFromFirebase, 100);
-        return;
-    }
-    
+// 로컬 스토리지 헬퍼 함수들
+function generateId() {
+    return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+}
+
+function saveToLocalStorage(key, data) {
     try {
-        const { database, ref, get } = window.firebase;
-        const itemsRef = ref(database, 'items');
-        const snapshot = await get(itemsRef);
-        
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            items = Object.keys(data).map(key => ({
-                id: key,
-                ...data[key]
-            }));
-            console.log('Firebase에서 물건 목록 로드됨:', items.length, '개');
-        } else {
-            console.log('Firebase에 저장된 물건이 없습니다.');
-            items = [];
-        }
-        
-        renderItems();
+        localStorage.setItem(key, JSON.stringify(data));
+        return true;
     } catch (error) {
-        console.error('Firebase에서 데이터 로드 실패:', error);
-        items = [];
-        renderItems();
+        console.error('로컬 스토리지 저장 실패:', error);
+        return false;
     }
 }
 
-async function loadAdminStatusFromFirebase() {
-    if (!window.firebase) {
-        console.log('Firebase가 아직 로드되지 않았습니다.');
-        return;
-    }
-    
+function loadFromLocalStorage(key, defaultValue = null) {
     try {
-        const { database, ref, get } = window.firebase;
-        const adminRef = ref(database, 'admin/isLoggedIn');
-        const snapshot = await get(adminRef);
-        
-        if (snapshot.exists()) {
-            isAdmin = snapshot.val();
-            console.log('Firebase에서 관리자 상태 로드됨:', isAdmin);
-        } else {
-            isAdmin = false;
-        }
-        
-        updateAdminUI();
+        const data = localStorage.getItem(key);
+        return data ? JSON.parse(data) : defaultValue;
     } catch (error) {
-        console.error('Firebase에서 관리자 상태 로드 실패:', error);
-        isAdmin = false;
-        updateAdminUI();
+        console.error('로컬 스토리지 로드 실패:', error);
+        return defaultValue;
     }
 }
 
-// DOM 요소들
-const addItemBtn = document.getElementById('addItemBtn');
-const addItemModal = document.getElementById('addItemModal');
-const adminModal = document.getElementById('adminModal');
-const adminBtn = document.getElementById('adminBtn');
-const addItemForm = document.getElementById('addItemForm');
-const itemsList = document.getElementById('itemsList');
-const emptyState = document.getElementById('emptyState');
-const sortSelect = document.getElementById('sortSelect');
-const imageInput = document.getElementById('itemImage');
-const imagePreview = document.getElementById('imagePreview');
-
-// 이벤트 리스너 설정
+// DOM이 로드되면 실행
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM 로드 완료');
+    console.log('스크립트 버전: 2024-01-15-예약기능제거');
+    
+    // 이벤트 리스너 등록
     setupEventListeners();
-    // Firebase에서 데이터 로드
-    loadItemsFromFirebase();
-    loadAdminStatusFromFirebase();
+    
+    // 관리자 상태 확인 (localStorage에서)
+    const savedAdminState = localStorage.getItem('adminLoggedIn');
+    if (savedAdminState === 'true') {
+        isAdmin = true;
+        updateAdminUI();
+    }
+    
+    // 로컬 스토리지에서 데이터 로드
+    loadItems();
 });
 
+// 이벤트 리스너 설정
 function setupEventListeners() {
-    // DOM 요소들 확인
-    console.log('DOM 요소들 확인:', {
-        addItemBtn: !!addItemBtn,
-        addItemModal: !!addItemModal,
-        adminModal: !!adminModal,
-        adminBtn: !!adminBtn,
-        addItemForm: !!addItemForm,
-        imageInput: !!imageInput,
-        imagePreview: !!imagePreview,
-        sortSelect: !!sortSelect
+    // 물건 등록 버튼
+    const addItemBtn = document.getElementById('addItemBtn');
+    if (addItemBtn) {
+        addItemBtn.addEventListener('click', openAddItemModal);
+    }
+    
+    // 관리자 버튼
+    const adminBtn = document.getElementById('adminBtn');
+    if (adminBtn) {
+        adminBtn.addEventListener('click', openAdminModal);
+    }
+    
+    // 모달 닫기 버튼들
+    const closeButtons = document.querySelectorAll('.close');
+    closeButtons.forEach(button => {
+        button.addEventListener('click', closeModals);
     });
     
-    // 모달 열기/닫기
-    if (addItemBtn) {
-        addItemBtn.addEventListener('click', () => openModal(addItemModal));
-    }
-    if (adminBtn) {
-        adminBtn.addEventListener('click', () => {
-            if (isAdmin) {
-                logout();
-            } else {
-                openModal(adminModal);
+    // 모달 외부 클릭시 닫기
+    window.addEventListener('click', function(event) {
+        const modals = document.querySelectorAll('.modal');
+        modals.forEach(modal => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
             }
         });
-    }
-    
-    // 모달 닫기 (X 버튼 클릭)
-    document.querySelectorAll('.close').forEach(closeBtn => {
-        closeBtn.addEventListener('click', function() {
-            closeModal(this.closest('.modal'));
-        });
     });
     
-    // 모달 닫기 (배경 클릭) - 입찰 모달은 제외
-    window.addEventListener('click', function(event) {
-        if (event.target.classList.contains('modal') && event.target.id !== 'bidModal') {
-            closeModal(event.target);
-        }
-    });
-    
-    // 폼 제출
+    // 물건 등록 폼
+    const addItemForm = document.getElementById('addItemForm');
     if (addItemForm) {
         addItemForm.addEventListener('submit', handleAddItem);
     }
     
-    // 다중 파일 업로드 및 드래그 앤 드롭
-    setupFileUpload();
-    
-    // 정렬
-    if (sortSelect) {
-        sortSelect.addEventListener('change', filterItems);
-    }
+
     
     // 관리자 로그인
     const adminLoginBtn = document.getElementById('adminLoginBtn');
-    const adminPassword = document.getElementById('adminPassword');
     if (adminLoginBtn) {
         adminLoginBtn.addEventListener('click', handleAdminLogin);
     }
-    if (adminPassword) {
-        adminPassword.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                handleAdminLogin();
-            }
+    
+    // 정렬 선택
+    const sortSelect = document.getElementById('sortSelect');
+    if (sortSelect) {
+        sortSelect.addEventListener('change', sortItems);
+    }
+    
+    // 파일 업로드 관련
+    setupFileUpload();
+    
+
+    
+    // 거래 완료 모달 버튼들
+    const confirmCompleteBtn = document.getElementById('confirmCompleteBtn');
+    const cancelCompleteBtn = document.getElementById('cancelCompleteBtn');
+    
+    if (confirmCompleteBtn) {
+        confirmCompleteBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            confirmCompleteTransaction();
         });
     }
-}
-
-// 모달 관리
-function openModal(modal) {
-    modal.style.display = 'block';
-    document.body.style.overflow = 'hidden';
     
-    // 관리자 모달인 경우 비밀번호 필드 초기화
-    if (modal === adminModal) {
-        const adminPassword = document.getElementById('adminPassword');
-        if (adminPassword) {
-            adminPassword.value = '';
-            adminPassword.focus();
-        }
-    }
-}
-
-function closeModal(modal) {
-    modal.style.display = 'none';
-    document.body.style.overflow = 'auto';
-    
-    // 폼 리셋
-    if (modal === addItemModal) {
-        addItemForm.reset();
-        
-        // 파일 업로드 관련 초기화
-        selectedFiles = []; // 선택된 파일 목록 초기화
-        
-        const selectedFilesList = document.getElementById('selectedFilesList');
-        const imagePreview = document.getElementById('imagePreview');
-        
-        if (selectedFilesList) {
-            selectedFilesList.innerHTML = '';
-        }
-        
-        if (imagePreview) {
-            imagePreview.innerHTML = '';
-        }
-        
-        // 업로드 버튼 초기 상태로 리셋
-        resetUploadButtonState();
-    }
-}
-
-// 파일 업로드 시스템 초기화
-function setupFileUpload() {
-    const fileUploadBtn = document.getElementById('fileUploadBtn');
-    const selectedFilesList = document.getElementById('selectedFilesList');
-    const imagePreview = document.getElementById('imagePreview');
-    
-    if (!imageInput || !fileUploadBtn) {
-        console.error('파일 업로드 요소들을 찾을 수 없습니다');
-        return;
+    if (cancelCompleteBtn) {
+        cancelCompleteBtn.addEventListener('click', function() {
+            document.getElementById('completeModal').style.display = 'none';
+        });
     }
     
-    console.log('파일 업로드 시스템 초기화됨');
-    console.log('직접 클릭 트리거 방식으로 파일 선택 구현됨');
-    
-    // 파일 입력 변경 이벤트
-    imageInput.addEventListener('change', function(e) {
-        console.log('파일 입력 change 이벤트 발생');
-        console.log('선택된 파일들:', e.target.files);
-        console.log('파일 개수:', e.target.files.length);
-        
-        if (e.target.files.length > 0) {
-            console.log('파일 처리 시작...');
-            handleFileSelection(e.target.files);
-        } else {
-            console.log('선택된 파일이 없습니다.');
-        }
-    });
-    
-    // 파일 업로드 버튼 클릭 이벤트 (여러 방법 시도)
-    fileUploadBtn.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        console.log('파일 업로드 버튼 클릭됨 - 파일 탐색기 열기 시도');
-        
-        // 드래그 오버 상태가 아닐 때만 파일 선택 트리거
-        if (!fileUploadBtn.classList.contains('drag-over')) {
-            console.log('파일 input 요소:', imageInput);
-            console.log('input이 DOM에 있는가?', document.contains(imageInput));
+    // 상세보기 모달 닫기 버튼
+    const closeDetailModal = document.getElementById('closeDetailModal');
+    if (closeDetailModal) {
+        closeDetailModal.addEventListener('click', function() {
+            const modal = document.getElementById('itemDetailModal');
+            const modalContent = modal.querySelector('.modal-content');
             
-            // 방법 1: 포커스 후 클릭
-            try {
-                console.log('방법 1: 포커스를 준 후 클릭');
-                imageInput.focus();
-                imageInput.click();
-                console.log('방법 1 완료');
-            } catch (error) {
-                console.error('방법 1 실패:', error);
-                
-                // 방법 2: 약간의 지연 후 클릭
-                try {
-                    console.log('방법 2: 지연 후 클릭');
-                    setTimeout(() => {
-                        imageInput.click();
-                        console.log('방법 2 완료');
-                    }, 10);
-                } catch (error2) {
-                    console.error('방법 2 실패:', error2);
-                    
-                    // 방법 3: 이벤트 생성해서 클릭
-                    try {
-                        console.log('방법 3: 클릭 이벤트 생성');
-                        const clickEvent = new MouseEvent('click', {
-                            view: window,
-                            bubbles: true,
-                            cancelable: true
-                        });
-                        imageInput.dispatchEvent(clickEvent);
-                        console.log('방법 3 완료');
-                    } catch (error3) {
-                        console.error('모든 방법 실패:', error3);
-                        alert('파일 선택기가 작동하지 않습니다. 드래그 앤 드롭을 사용해주세요.');
-                    }
+            // 슬라이드 아웃 애니메이션
+            modalContent.classList.remove('show');
+            
+            // 애니메이션 완료 후 모달 숨김
+            setTimeout(() => {
+                modal.style.display = 'none';
+            }, 300);
+        });
+    }
+    
+    // 판매자 인증 모달 관련
+    const closeSellerAuthModalBtn = document.getElementById('closeSellerAuthModal');
+    if (closeSellerAuthModalBtn) {
+        closeSellerAuthModalBtn.addEventListener('click', function() {
+            closeSellerAuthModal();
+        });
+    }
+    
+    const sellerAuthForm = document.getElementById('sellerAuthForm');
+    if (sellerAuthForm) {
+        sellerAuthForm.addEventListener('submit', handleSellerAuth);
+    }
+    
+    // 판매자 인증 모달의 연락처 입력 포맷팅
+    const authContactInput = document.getElementById('authSellerContact');
+    if (authContactInput) {
+        authContactInput.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/[^\d]/g, '');
+            
+            if (value.length >= 3) {
+                if (value.length <= 7) {
+                    value = value.replace(/(\d{3})(\d+)/, '$1-$2');
+                } else {
+                    value = value.replace(/(\d{3})(\d{4})(\d+)/, '$1-$2-$3');
                 }
             }
-        }
-    });
-    
-    // 터치 이벤트 (모바일 대응)
-    fileUploadBtn.addEventListener('touchend', function(e) {
-        e.preventDefault();
-        console.log('터치 이벤트 - 파일 선택 시도');
-        imageInput.click();
-    });
-    
-    // 드래그 앤 드롭 이벤트들
-    setupDragAndDrop(fileUploadBtn);
-}
-
-// 드래그 앤 드롭 설정
-function setupDragAndDrop(dropZone) {
-    // 기본 드래그 동작 방지
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, preventDefaults, false);
-        document.body.addEventListener(eventName, preventDefaults, false);
-    });
-    
-    // 드래그 오버 효과
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, highlight, false);
-    });
-    
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, unhighlight, false);
-    });
-    
-    // 파일 드롭 처리
-    dropZone.addEventListener('drop', handleDrop, false);
-    
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-    
-    function highlight(e) {
-        dropZone.classList.add('drag-over');
-    }
-    
-    function unhighlight(e) {
-        dropZone.classList.remove('drag-over');
-    }
-    
-    function handleDrop(e) {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        console.log('=== 드래그 앤 드롭 이벤트 ===');
-        console.log('드롭된 파일 개수:', files.length);
-        console.log('드롭된 파일들:', files);
-        handleFileSelection(files);
-    }
-}
-
-// 파일 선택 처리
-function handleFileSelection(files) {
-    console.log('=== handleFileSelection 함수 호출됨 ===');
-    console.log('전달받은 파일 수:', files.length);
-    console.log('현재 selectedFiles 개수:', selectedFiles.length);
-    
-    const validFiles = [];
-    
-    // 파일 유효성 검사
-    Array.from(files).forEach((file, index) => {
-        console.log(`파일 ${index + 1} 검사 중:`, file.name, file.type, file.size);
-        
-        if (file.type.startsWith('image/')) {
-            if (file.size > 10 * 1024 * 1024) { // 10MB 제한
-                console.log(`파일 크기 초과: ${file.name}`);
-                showNotification(`${file.name}은 10MB를 초과합니다.`, 'error');
-            } else {
-                console.log(`유효한 파일: ${file.name}`);
-                validFiles.push(file);
-            }
-        } else {
-            console.log(`이미지가 아닌 파일: ${file.name}`);
-            showNotification(`${file.name}은 이미지 파일이 아닙니다.`, 'error');
-        }
-    });
-    
-    console.log('유효한 파일 수:', validFiles.length);
-    
-    // 선택된 파일들에 추가
-    let addedFiles = 0;
-    validFiles.forEach(file => {
-        // 중복 파일 체크 (파일명과 크기로)
-        const isDuplicate = selectedFiles.some(existingFile => 
-            existingFile.name === file.name && existingFile.size === file.size
-        );
-        
-        if (!isDuplicate) {
-            selectedFiles.push(file);
-            addedFiles++;
-            console.log(`파일 추가됨: ${file.name}`);
-        } else {
-            console.log(`중복 파일 제외: ${file.name}`);
-            showNotification(`${file.name}은 이미 선택된 파일입니다.`, 'info');
-        }
-    });
-    
-    console.log(`총 ${addedFiles}개 파일 추가됨`);
-    console.log('현재 선택된 파일 총 개수:', selectedFiles.length);
-    console.log('최종 selectedFiles 내용:', selectedFiles);
-    
-    updateFilesList();
-    updateImagePreview();
-    updateUploadButtonState();
-    
-    if (addedFiles > 0) {
-        showNotification(`${addedFiles}개의 사진이 선택되었습니다.`, 'success');
-    }
-}
-
-// 파일 목록 업데이트
-function updateFilesList() {
-    const selectedFilesList = document.getElementById('selectedFilesList');
-    
-    if (selectedFiles.length === 0) {
-        selectedFilesList.innerHTML = '';
-        return;
-    }
-    
-    // 전체 삭제 버튼과 파일 목록 헤더
-    let headerHTML = `
-        <div class="files-list-header">
-            <div class="files-count">
-                <i class="fas fa-images"></i>
-                선택된 사진: ${selectedFiles.length}장
-            </div>
-            <button class="clear-all-files" onclick="clearAllFiles()">
-                <i class="fas fa-trash"></i>
-                전체 삭제
-            </button>
-        </div>
-    `;
-    
-    // 개별 파일 목록
-    let filesHTML = selectedFiles.map((file, index) => `
-        <div class="selected-file-item">
-            <div class="file-info">
-                <i class="fas fa-image"></i>
-                <span class="file-name">${file.name}</span>
-                <span class="file-size">(${formatFileSize(file.size)})</span>
-            </div>
-            <button class="remove-file" onclick="removeFile(${index})" title="이 사진 삭제">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-    `).join('');
-    
-    selectedFilesList.innerHTML = headerHTML + filesHTML;
-}
-
-// 이미지 미리보기 업데이트
-function updateImagePreview() {
-    const imagePreview = document.getElementById('imagePreview');
-    
-    if (selectedFiles.length === 0) {
-        imagePreview.innerHTML = '';
-        return;
-    }
-    
-    imagePreview.innerHTML = '';
-    
-    selectedFiles.forEach((file, index) => {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const previewItem = document.createElement('div');
-            previewItem.className = 'preview-item';
-            previewItem.innerHTML = `
-                <img src="${e.target.result}" alt="${file.name}">
-                <button class="remove-preview" onclick="removeFile(${index})">
-                    <i class="fas fa-times"></i>
-                </button>
-                <div class="image-name">${file.name}</div>
-            `;
-            imagePreview.appendChild(previewItem);
-        };
-        reader.readAsDataURL(file);
-    });
-}
-
-// 업로드 버튼 상태 업데이트
-function updateUploadButtonState() {
-    const fileUploadBtn = document.getElementById('fileUploadBtn');
-    const uploadContent = fileUploadBtn.querySelector('.upload-content');
-    
-    if (selectedFiles.length > 0) {
-        fileUploadBtn.style.borderColor = '#28a745';
-        fileUploadBtn.style.background = 'linear-gradient(135deg, rgba(40, 167, 69, 0.1), rgba(40, 167, 69, 0.05))';
-        uploadContent.querySelector('i').style.color = '#28a745';
-        uploadContent.querySelector('span').textContent = `${selectedFiles.length}개 사진 선택됨`;
-        uploadContent.querySelector('small').textContent = '더 추가하려면 클릭하거나 드래그하세요';
-    } else {
-        resetUploadButtonState();
-    }
-}
-
-// 업로드 버튼 초기 상태로 리셋
-function resetUploadButtonState() {
-    const fileUploadBtn = document.getElementById('fileUploadBtn');
-    const uploadContent = fileUploadBtn.querySelector('.upload-content');
-    
-    if (fileUploadBtn && uploadContent) {
-        fileUploadBtn.style.borderColor = '#667eea';
-        fileUploadBtn.style.background = 'linear-gradient(135deg, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05))';
-        uploadContent.querySelector('i').style.color = '#667eea';
-        uploadContent.querySelector('span').textContent = '사진 선택하기';
-        uploadContent.querySelector('small').textContent = '클릭하여 선택하거나 여기에 드래그해서 업로드하세요';
-    }
-}
-
-// 개별 파일 제거
-function removeFile(index) {
-    const fileName = selectedFiles[index].name;
-    selectedFiles.splice(index, 1);
-    updateFilesList();
-    updateImagePreview();
-    updateUploadButtonState();
-    
-    showNotification(`${fileName}이(가) 제거되었습니다.`, 'info');
-}
-
-// 전체 파일 삭제
-function clearAllFiles() {
-    if (selectedFiles.length === 0) {
-        return;
-    }
-    
-    const fileCount = selectedFiles.length;
-    
-    // 확인 대화상자
-    if (confirm(`선택된 ${fileCount}장의 사진을 모두 삭제하시겠습니까?`)) {
-        selectedFiles = [];
-        updateFilesList();
-        updateImagePreview();
-        updateUploadButtonState();
-        
-        // 파일 입력 요소도 초기화
-        const imageInput = document.getElementById('itemImage');
-        if (imageInput) {
-            imageInput.value = '';
-        }
-        
-        showNotification(`${fileCount}장의 사진이 모두 삭제되었습니다.`, 'success');
-    }
-}
-
-// 파일 크기 포맷팅
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-// 이미지 압축 함수
-function compressImage(file, callback, maxWidth = 1000, maxHeight = 750, quality = 0.9) {
-    console.log(`이미지 압축 시작: ${file.name} (${formatFileSize(file.size)})`);
-    
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = function() {
-        console.log(`원본 이미지 크기: ${img.width}x${img.height}`);
-        
-        // 비율을 유지하면서 크기 조정 계산
-        let { width, height } = img;
-        
-        if (width > height) {
-            if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-            }
-        } else {
-            if (height > maxHeight) {
-                width = (width * maxHeight) / height;
-                height = maxHeight;
-            }
-        }
-        
-        console.log(`압축된 이미지 크기: ${width}x${height}`);
-        
-        // 캔버스 크기 설정
-        canvas.width = width;
-        canvas.height = height;
-        
-        // 이미지를 캔버스에 그리기
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        // 압축된 이미지를 base64로 변환
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
-        
-        // 압축된 크기 계산 (대략적으로)
-        const compressedSize = Math.round(compressedDataUrl.length * 0.75);
-        console.log(`압축 완료: ${formatFileSize(compressedSize)} (압축률: ${Math.round((1 - compressedSize/file.size) * 100)}%)`);
-        
-        callback(compressedDataUrl);
-    };
-    
-    img.onerror = function() {
-        console.error('이미지 로드 실패:', file.name);
-        // 압축 실패 시 원본 파일을 base64로 변환
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            callback(e.target.result);
-        };
-        reader.readAsDataURL(file);
-    };
-    
-    // 이미지 로드
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-}
-
-// 물건 추가
-function handleAddItem(event) {
-    event.preventDefault();
-    
-    console.log('=== 물건 등록 시작 ===');
-    console.log('selectedFiles 개수:', selectedFiles.length);
-    console.log('selectedFiles 내용:', selectedFiles);
-    
-    // form의 파일 input도 확인
-    const formFiles = imageInput.files;
-    console.log('form 파일 input 개수:', formFiles.length);
-    console.log('form 파일 내용:', formFiles);
-    
-    // 파일이 선택되었는지 확인 (selectedFiles 또는 form 파일 중 하나라도 있으면 됨)
-    const hasFiles = selectedFiles.length > 0 || formFiles.length > 0;
-    if (!hasFiles) {
-        console.log('파일이 선택되지 않음 - 에러 메시지 표시');
-        showNotification('사진을 하나 이상 선택해주세요.', 'error');
-        return;
-    }
-    
-    console.log('파일 검사 통과 - 등록 진행');
-    
-    // selectedFiles가 비어있으면 form 파일을 사용
-    const filesToProcess = selectedFiles.length > 0 ? selectedFiles : Array.from(formFiles);
-    console.log('처리할 파일들:', filesToProcess);
-    
-    const formData = new FormData(addItemForm);
-    const images = [];
-    let processedImages = 0;
-    
-    // 모든 이미지를 압축하여 base64로 변환
-    filesToProcess.forEach((file, index) => {
-        // 이미지 압축 함수 호출
-        compressImage(file, (compressedDataUrl) => {
-            images[index] = {
-                data: compressedDataUrl,
-                name: file.name,
-                size: file.size,
-                compressed: true
-            };
             
-            processedImages++;
-            
-            // 모든 이미지 처리가 완료되면 아이템 생성
-            if (processedImages === filesToProcess.length) {
-                const newItem = {
-                    id: Date.now(),
-                    name: formData.get('itemName'),
-                    price: parseInt(formData.get('itemPrice')),
-                    purchaseDate: formData.get('purchaseDate'),
-                    purchasePrice: parseInt(formData.get('purchasePrice')),
-                    description: formData.get('itemDescription'),
-                    seller: formData.get('sellerName'),
-                    images: images,
-                    mainImage: images[0].data, // 첫 번째 이미지를 메인 이미지로
-                    date: new Date().toISOString(),
-                    bids: [], // 입찰 목록
-                    isLiveAuction: false // 현장경매 여부
-                };
-                
-                items.unshift(newItem); // 최신 순으로 추가
-                
-                try {
-                    saveItems();
-                    renderItems();
-                    
-                    // 폼과 파일 목록 초기화
-                    addItemForm.reset();
-                    selectedFiles = [];
-                    updateFilesList();
-                    updateImagePreview();
-                    resetUploadButtonState();
-                    
-                    closeModal(addItemModal);
-                    
-                    showNotification(`물건이 성공적으로 등록되었습니다! (${images.length}장의 사진)`, 'success');
-                } catch (error) {
-                    console.error('저장 중 오류 발생:', error);
-                    if (error.name === 'QuotaExceededError') {
-                        showNotification('저장 공간이 부족합니다. 이미지를 더 작게 해서 다시 시도해주세요.', 'error');
-                    } else {
-                        showNotification('물건 등록 중 오류가 발생했습니다.', 'error');
-                    }
-                    // 실패 시 아이템 목록에서 제거
-                    items.shift();
-                }
-            }
-        });
-    });
-}
-
-// 데이터 저장
-async function saveItems() {
-    if (!window.firebase) {
-        console.error('Firebase가 로드되지 않아 데이터를 저장할 수 없습니다.');
-        return;
-    }
-    
-    try {
-        const { database, ref, set } = window.firebase;
-        
-        // items 배열을 객체로 변환 (Firebase는 배열보다 객체가 효율적)
-        const itemsObject = {};
-        items.forEach(item => {
-            itemsObject[item.id] = item;
-        });
-        
-        const itemsRef = ref(database, 'items');
-        await set(itemsRef, itemsObject);
-        
-        console.log('Firebase에 물건 목록 저장 완료');
-    } catch (error) {
-        console.error('Firebase 저장 실패:', error);
-        throw error; // 에러를 다시 던져서 호출하는 곳에서 처리할 수 있도록
-    }
-}
-
-// 물건 목록 렌더링
-function renderItems(itemsToRender = items) {
-    if (itemsToRender.length === 0) {
-        itemsList.style.display = 'none';
-        emptyState.style.display = 'block';
-    } else {
-        itemsList.style.display = 'grid';
-        emptyState.style.display = 'none';
-        
-        itemsList.innerHTML = itemsToRender.map(item => {
-            // 이전 버전 호환성을 위해 mainImage가 없으면 image 사용
-            const mainImage = item.mainImage || item.image;
-            const imageCount = item.images ? item.images.length : 1;
-            
-            // 입찰 관련 정보 계산
-            const bids = item.bids || [];
-            const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
-            const currentPrice = Math.max(item.price, highestBid);
-            const bidCount = bids.length;
-            
-            return `
-                <div class="item-card fade-in ${item.isLiveAuction && bidCount > 0 ? 'has-live-auction' : ''}" data-id="${item.id}">
-                    <div class="item-image-container" onclick="showItemDetails(${item.id})">
-                        <img src="${mainImage}" alt="${item.name}" class="item-image">
-                        ${imageCount > 1 ? `
-                            <div class="image-count-badge">
-                                <i class="fas fa-images"></i>
-                                ${imageCount}
-                            </div>
-                        ` : ''}
-                        ${bidCount > 0 ? `
-                            <div class="bid-count-badge">
-                                <i class="fas fa-gavel"></i>
-                                ${bidCount}
-                            </div>
-                        ` : ''}
-                        ${item.isLiveAuction ? `
-                            <div class="live-auction-badge">
-                                <i class="fas fa-microphone"></i>
-                                현장경매
-                            </div>
-                        ` : ''}
-                    </div>
-                    <div class="item-info" onclick="showItemDetails(${item.id})">
-                        <div class="item-name">${escapeHtml(item.name)}</div>
-                        <div class="item-price-info">
-                            <div class="current-price">${formatPrice(currentPrice)}원</div>
-                            ${highestBid > 0 ? `
-                                <div class="start-price">시작가: ${formatPrice(item.price)}원</div>
-                            ` : `
-                                <div class="start-price">시작가</div>
-                            `}
-                        </div>
-                        <div class="item-description">${escapeHtml(item.description)}</div>
-                        <div class="item-purchase-info">
-                            ${item.purchaseDate ? `
-                                <div class="purchase-date">
-                                    <i class="fas fa-calendar"></i> ${formatDate(item.purchaseDate)}
-                                </div>
-                            ` : ''}
-                            ${item.purchasePrice ? `
-                                <div class="purchase-price">
-                                    <i class="fas fa-won-sign"></i> 구매가: ${formatPrice(item.purchasePrice)}원
-                                </div>
-                            ` : ''}
-                        </div>
-                        <div class="item-seller">
-                            <i class="fas fa-user"></i> ${escapeHtml(item.seller)}
-                            <div class="item-date">${formatDate(item.date)}</div>
-                        </div>
-                    </div>
-                    <div class="item-actions">
-                        ${!item.isLiveAuction ? `
-                            <button class="bid-btn" onclick="openBidModal(${item.id})" title="입찰하기">
-                                <i class="fas fa-gavel"></i> 입찰
-                            </button>
-                        ` : `
-                            <button class="live-auction-btn" disabled title="현장경매 진행중">
-                                <i class="fas fa-microphone"></i> 현장경매
-                            </button>
-                        `}
-                        <button class="delete-item-btn" onclick="deleteItem(${item.id})" title="이 물건 삭제" 
-                                style="display: ${isAdmin ? 'block' : 'none'};">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-}
-
-// 물건 상세보기 (다중 이미지 표시)
-function showItemDetails(itemId) {
-    const item = items.find(item => item.id === itemId);
-    if (!item) return;
-    
-    // 이미지 갤러리 모달 생성
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.style.display = 'block';
-    
-    const images = item.images || [{ data: item.image, name: item.name }];
-    
-    modal.innerHTML = `
-        <div class="modal-content item-detail-modal">
-            <div class="modal-header">
-                <h2><i class="fas fa-info-circle"></i> ${escapeHtml(item.name)}</h2>
-                <span class="close">&times;</span>
-            </div>
-            <div class="item-detail-content">
-                <div class="item-gallery">
-                    <div class="main-image">
-                        <img id="mainDisplayImage" src="${images[0].data}" alt="${item.name}">
-                    </div>
-                    ${images.length > 1 ? `
-                        <div class="thumbnail-gallery">
-                            ${images.map((img, index) => `
-                                <img src="${img.data}" alt="${img.name}" 
-                                     class="thumbnail ${index === 0 ? 'active' : ''}"
-                                     onclick="changeMainImage('${img.data}', this)">
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-                <div class="item-details">
-                    <div class="detail-price">${formatPrice(item.price)}원</div>
-                    <div class="detail-description">${escapeHtml(item.description)}</div>
-                    <div class="detail-seller">
-                        <i class="fas fa-user"></i> ${escapeHtml(item.seller)}
-                    </div>
-                    <div class="detail-date">
-                        <i class="fas fa-clock"></i> ${formatDate(item.date)}
-                    </div>
-                    <div class="detail-images-info">
-                        <i class="fas fa-images"></i> ${images.length}장의 사진
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    document.body.style.overflow = 'hidden';
-    
-    // 모달 닫기 이벤트
-    modal.querySelector('.close').addEventListener('click', () => {
-        document.body.removeChild(modal);
-        document.body.style.overflow = 'auto';
-    });
-    
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            document.body.removeChild(modal);
-            document.body.style.overflow = 'auto';
-        }
-    });
-}
-
-// 메인 이미지 변경
-function changeMainImage(imageSrc, thumbnail) {
-    document.getElementById('mainDisplayImage').src = imageSrc;
-    
-    // 썸네일 활성화 상태 변경
-    document.querySelectorAll('.thumbnail').forEach(thumb => {
-        thumb.classList.remove('active');
-    });
-    thumbnail.classList.add('active');
-}
-
-// 정렬
-function filterItems() {
-    const sortBy = sortSelect.value;
-    
-    let sortedItems = [...items]; // 모든 아이템을 복사
-    
-    // 정렬
-    switch (sortBy) {
-        case 'latest':
-            sortedItems.sort((a, b) => new Date(b.date) - new Date(a.date));
-            break;
-        case 'priceAsc':
-            sortedItems.sort((a, b) => a.price - b.price);
-            break;
-        case 'priceDesc':
-            sortedItems.sort((a, b) => b.price - a.price);
-            break;
-        case 'name':
-            sortedItems.sort((a, b) => a.name.localeCompare(b.name));
-            break;
-    }
-    
-    renderItems(sortedItems);
-}
-
-// 관리자 로그인 처리
-async function handleAdminLogin() {
-    const adminPassword = document.getElementById('adminPassword');
-    const password = adminPassword.value;
-    
-    // 간단한 비밀번호 (실제 운영에서는 더 안전한 방법 사용)
-    if (password === 'admin123') {
-        isAdmin = true;
-        
-        // Firebase에 관리자 상태 저장
-        if (window.firebase) {
-            try {
-                const { database, ref, set } = window.firebase;
-                const adminRef = ref(database, 'admin/isLoggedIn');
-                await set(adminRef, true);
-                console.log('Firebase에 관리자 상태 저장 완료');
-            } catch (error) {
-                console.error('Firebase에 관리자 상태 저장 실패:', error);
-            }
-        }
-        
-        closeModal(adminModal);
-        updateAdminUI();
-        showNotification('관리자로 로그인되었습니다.', 'success');
-    } else {
-        showNotification('비밀번호가 틀렸습니다.', 'error');
-        adminPassword.value = '';
-        adminPassword.focus();
-    }
-}
-
-// 관리자 로그아웃
-async function logout() {
-    isAdmin = false;
-    
-    // Firebase에 관리자 상태 저장
-    if (window.firebase) {
-        try {
-            const { database, ref, set } = window.firebase;
-            const adminRef = ref(database, 'admin/isLoggedIn');
-            await set(adminRef, false);
-            console.log('Firebase에 관리자 로그아웃 상태 저장 완료');
-        } catch (error) {
-            console.error('Firebase에 관리자 상태 저장 실패:', error);
-        }
-    }
-    
-    updateAdminUI();
-    showNotification('로그아웃되었습니다.', 'info');
-}
-
-// 관리자 UI 상태 업데이트
-function updateAdminUI() {
-    const adminBtn = document.getElementById('adminBtn');
-    
-    if (isAdmin) {
-        adminBtn.style.display = 'inline-block';
-        adminBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> 로그아웃';
-        adminBtn.title = '관리자 로그아웃';
-    } else {
-        adminBtn.style.display = 'inline-block';
-        adminBtn.innerHTML = '<i class="fas fa-key"></i> 관리자';
-        adminBtn.title = '관리자 로그인';
-    }
-    
-    // 삭제 버튼들 표시/숨기기
-    const deleteButtons = document.querySelectorAll('.delete-item-btn');
-    deleteButtons.forEach(btn => {
-        btn.style.display = isAdmin ? 'block' : 'none';
-    });
-}
-
-// 유틸리티 함수들
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-}
-
-function formatPrice(price) {
-    return price.toLocaleString('ko-KR');
-}
-
-function formatDate(dateString) {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diff = now - date;
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor(diff / (1000 * 60));
-    
-    if (days > 0) {
-        return `${days}일 전`;
-    } else if (hours > 0) {
-        return `${hours}시간 전`;
-    } else if (minutes > 0) {
-        return `${minutes}분 전`;
-    } else {
-        return '방금 전';
-    }
-}
-
-// 알림 시스템
-function showNotification(message, type = 'info') {
-    // 기존 알림 제거
-    const existingNotification = document.querySelector('.notification');
-    if (existingNotification) {
-        existingNotification.remove();
-    }
-    
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.innerHTML = `
-        <div class="notification-content">
-            <i class="fas ${type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'}"></i>
-            <span>${message}</span>
-        </div>
-    `;
-    
-    // 스타일 추가
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        background: ${type === 'success' ? '#28a745' : type === 'error' ? '#dc3545' : '#17a2b8'};
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        z-index: 10000;
-        animation: slideInRight 0.3s ease;
-        font-weight: 500;
-        max-width: 300px;
-    `;
-    
-    document.body.appendChild(notification);
-    
-    // 3초 후 자동 제거
-    setTimeout(() => {
-        notification.style.animation = 'slideOutRight 0.3s ease';
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.remove();
-            }
-        }, 300);
-    }, 3000);
-}
-
-// 애니메이션 CSS 동적 추가
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes slideInRight {
-        from {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-        to {
-            transform: translateX(0);
-            opacity: 1;
-        }
-    }
-    
-    @keyframes slideOutRight {
-        from {
-            transform: translateX(0);
-            opacity: 1;
-        }
-        to {
-            transform: translateX(100%);
-            opacity: 0;
-        }
-    }
-    
-    .notification-content {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-`;
-document.head.appendChild(style);
-
-// PWA 지원 제거 (ServiceWorker 파일이 없으므로 비활성화)
-
-// 터치 이벤트 지원 (모바일)
-let touchStartY = 0;
-let touchEndY = 0;
-
-document.addEventListener('touchstart', function(event) {
-    touchStartY = event.changedTouches[0].screenY;
-});
-
-document.addEventListener('touchend', function(event) {
-    touchEndY = event.changedTouches[0].screenY;
-    handleSwipe();
-});
-
-function handleSwipe() {
-    // 스와이프 기능 비활성화 - 실수로 물건 등록이 되는 것을 방지
-    // const swipeThreshold = 50;
-    // const diff = touchStartY - touchEndY;
-    
-    // if (Math.abs(diff) > swipeThreshold) {
-    //     if (diff > 0) {
-    //         // 위로 스와이프 - 물건 등록 모달 열기
-    //         const addItemBtn = document.getElementById('addItemBtn');
-    //         if (addItemBtn) {
-    //             addItemBtn.click();
-    //         }
-    //     }
-    // }
-}
-
-// 키보드 단축키
-document.addEventListener('keydown', function(event) {
-    // Ctrl/Cmd + N: 새 물건 등록
-    if ((event.ctrlKey || event.metaKey) && event.key === 'n') {
-        event.preventDefault();
-        openModal(addItemModal);
-    }
-    
-    // Ctrl/Cmd + A: 관리자 로그인/로그아웃
-    if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-        event.preventDefault();
-        if (isAdmin) {
-            logout();
-        } else {
-            openModal(adminModal);
-        }
-    }
-    
-    // ESC: 모달 닫기
-    if (event.key === 'Escape') {
-        const openModal = document.querySelector('.modal[style*="block"]');
-        if (openModal) {
-            closeModal(openModal);
-        }
-    }
-});
-
-// 개발자 도구용 함수들 (선택사항)
-window.bazaarApp = {
-    items,
-    addSampleData: function() {
-        const sampleItems = [
-            {
-                id: Date.now() + 1,
-                name: '아이폰 13',
-                price: 800000,
-                description: '거의 새 것 같은 상태입니다. 케이스와 충전기 포함.',
-                seller: '김철수',
-                image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7spYjtj7Ag7KSAIOydtOuvuOyngDwvdGV4dD48L3N2Zz4=',
-                date: new Date().toISOString()
-            },
-            {
-                id: Date.now() + 2,
-                name: '책상',
-                price: 50000,
-                description: '원목 책상입니다. 약간의 사용감은 있지만 튼튼합니다.',
-                seller: '박영희',
-                image: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtc2l6ZT0iMTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj7ssYXsg4E8L3RleHQ+PC9zdmc+',
-                date: new Date(Date.now() - 86400000).toISOString()
-            }
-        ];
-        
-        items.push(...sampleItems);
-        saveItems();
-        renderItems();
-        console.log('샘플 데이터가 추가되었습니다.');
-    },
-    clearData: function() {
-        items.length = 0;
-        saveItems();
-        renderItems();
-        console.log('모든 데이터가 삭제되었습니다.');
-    }
-};
-
-// 물건 삭제 함수
-async function deleteItem(itemId) {
-    // 관리자 권한 확인
-    if (!isAdmin) {
-        showNotification('관리자만 물건을 삭제할 수 있습니다.', 'error');
-        return;
-    }
-    
-    // 확인 메시지
-    if (!confirm('이 물건을 삭제하시겠습니까? 삭제된 물건은 복구할 수 없습니다.')) {
-        return;
-    }
-
-    try {
-        const itemIndex = items.findIndex(item => item.id === itemId);
-        
-        if (itemIndex === -1) {
-            showNotification('삭제할 물건을 찾을 수 없습니다.', 'error');
-            return;
-        }
-
-        const deletedItem = items[itemIndex];
-        items.splice(itemIndex, 1);
-        
-        // Firebase에 저장
-        await saveItems();
-        
-        // 화면 업데이트
-        renderItems();
-        
-        showNotification(`"${deletedItem.name}" 물건이 삭제되었습니다.`, 'success');
-        
-        console.log('물건 삭제됨:', deletedItem);
-        
-    } catch (error) {
-        console.error('물건 삭제 중 오류:', error);
-        showNotification('물건 삭제 중 오류가 발생했습니다.', 'error');
-    }
-}
-
-// 전역 함수로 노출
-window.deleteItem = deleteItem;
-
-// ==================== 입찰 관련 기능 ====================
-
-// 입찰 모달 열기
-function openBidModal(itemId) {
-    const item = items.find(item => item.id === itemId);
-    if (!item) return;
-    
-    // 현장경매 물건은 입찰 불가
-    if (item.isLiveAuction) {
-        showNotification('현장경매 진행중인 물건은 온라인 입찰이 불가능합니다.', 'error');
-        return;
-    }
-    
-    // 다른 모달들 먼저 닫기 (물건 상세보기 모달 등)
-    const openModals = document.querySelectorAll('.modal[style*="block"]');
-    openModals.forEach(modal => {
-        if (modal.id !== 'bidModal') {
-            closeModal(modal);
-        }
-    });
-    
-    // 동적으로 생성된 모달들 제거
-    const dynamicModals = document.querySelectorAll('.modal:not([id])');
-    dynamicModals.forEach(modal => {
-        document.body.removeChild(modal);
-    });
-    
-    const bidModal = document.getElementById('bidModal');
-    const bidAmount = document.getElementById('bidAmount');
-    const bidderName = document.getElementById('bidderName');
-    const bidderContact = document.getElementById('bidderContact');
-    const minBidAmount = document.getElementById('minBidAmount');
-    
-    // 최소 입찰 금액 계산
-    const bids = item.bids || [];
-    const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
-    const minBid = Math.max(item.price, highestBid) + 1000; // 최소 1000원 위
-    
-    // 모달 설정
-    bidAmount.min = minBid;
-    bidAmount.value = minBid;
-    minBidAmount.textContent = formatPrice(minBid);
-    
-    // 가명 생성
-    generateRandomName();
-    
-    // 연락처 초기화
-    bidderContact.value = '';
-    
-    // 현재 입찰하는 아이템 ID 저장
-    bidModal.dataset.itemId = itemId;
-    
-    openModal(bidModal);
-}
-
-// 가명 생성 함수
-function generateRandomName() {
-    const adjectives = ['멋진', '똑똑한', '친절한', '용감한', '신중한', '유쾌한', '성실한', '창의적인', '활발한', '겸손한'];
-    const animals = ['고양이', '강아지', '토끼', '사자', '호랑이', '코끼리', '펭귄', '다람쥐', '여우', '부엉이'];
-    const numbers = String(Math.floor(Math.random() * 1000));
-    
-    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const animal = animals[Math.floor(Math.random() * animals.length)];
-    
-    const randomName = `${adjective}${animal}${numbers}`;
-    
-    const bidderName = document.getElementById('bidderName');
-    if (bidderName) {
-        bidderName.value = randomName;
-    }
-    
-    return randomName;
-}
-
-// 입찰 처리 함수
-async function handleBidSubmit(event) {
-    event.preventDefault();
-    
-    const bidModal = document.getElementById('bidModal');
-    const itemId = parseInt(bidModal.dataset.itemId);
-    const bidAmount = parseInt(document.getElementById('bidAmount').value);
-    const bidderName = document.getElementById('bidderName').value;
-    const bidderContact = document.getElementById('bidderContact').value;
-    
-    // 입력값 검증
-    if (!bidAmount || !bidderName || !bidderContact) {
-        showNotification('모든 필드를 입력해주세요.', 'error');
-        return;
-    }
-    
-    // 연락처 형식 검증 (숫자만 추출해서 체크)
-    const contactNumbers = bidderContact.replace(/\D/g, '');
-    if (contactNumbers.length !== 11 || !contactNumbers.startsWith('010')) {
-        showNotification('올바른 휴대폰 번호를 입력해주세요. (010으로 시작하는 11자리)', 'error');
-        return;
-    }
-    
-    // 아이템 찾기
-    const item = items.find(item => item.id === itemId);
-    if (!item) {
-        showNotification('물건을 찾을 수 없습니다.', 'error');
-        return;
-    }
-    
-    // 최소 입찰 금액 확인
-    const bids = item.bids || [];
-    const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
-    const minBid = Math.max(item.price, highestBid) + 1000;
-    
-    if (bidAmount < minBid) {
-        showNotification(`최소 입찰 금액은 ${formatPrice(minBid)}원입니다.`, 'error');
-        return;
-    }
-    
-    // 새로운 입찰 추가
-    const newBid = {
-        id: Date.now(),
-        amount: bidAmount,
-        bidderName: bidderName,
-        bidderContact: bidderContact,
-        timestamp: new Date().toISOString()
-    };
-    
-    if (!item.bids) {
-        item.bids = [];
-    }
-    item.bids.push(newBid);
-    
-    // 입찰을 금액 순으로 정렬 (높은 금액이 먼저)
-    item.bids.sort((a, b) => b.amount - a.amount);
-    
-    try {
-        // Firebase에 저장
-        await saveItems();
-        
-        // 화면 업데이트
-        renderItems();
-        
-        // 모달 닫기
-        closeModal(bidModal);
-        
-        showNotification(`${formatPrice(bidAmount)}원으로 입찰되었습니다!`, 'success');
-        
-        console.log('새로운 입찰:', newBid);
-        
-    } catch (error) {
-        console.error('입찰 저장 중 오류:', error);
-        showNotification('입찰 처리 중 오류가 발생했습니다.', 'error');
-        
-        // 실패 시 입찰 목록에서 제거
-        item.bids.pop();
-    }
-}
-
-// 입찰 관련 이벤트 리스너 설정
-function setupBidEventListeners() {
-    const bidForm = document.getElementById('bidForm');
-    const generateNameBtn = document.getElementById('generateNameBtn');
-    const closeBidModalBtn = document.getElementById('closeBidModal');
-    const bidderContact = document.getElementById('bidderContact');
-    
-    if (bidForm) {
-        bidForm.addEventListener('submit', handleBidSubmit);
-    }
-    
-    if (generateNameBtn) {
-        generateNameBtn.addEventListener('click', generateRandomName);
-    }
-    
-    if (closeBidModalBtn) {
-        closeBidModalBtn.addEventListener('click', function() {
-            const bidModal = document.getElementById('bidModal');
-            closeModal(bidModal);
+            e.target.value = value;
         });
     }
     
     // 연락처 자동 포맷팅
-    if (bidderContact) {
-        bidderContact.addEventListener('input', formatPhoneNumber);
-        bidderContact.addEventListener('keydown', handlePhoneNumberKeydown);
-    }
+    setupContactFormatting();
 }
 
-// 물건 상세보기 업데이트 (입찰 정보 포함)
-function showItemDetailsWithBids(itemId) {
-    const item = items.find(item => item.id === itemId);
-    if (!item) return;
+// 연락처 자동 포맷팅 설정
+function setupContactFormatting() {
+    const contactInputs = ['sellerContact'];
     
-    // 이미지 갤러리 모달 생성
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.style.display = 'block';
-    
-    const images = item.images || [{ data: item.image, name: item.name }];
-    const bids = item.bids || [];
-    const highestBid = bids.length > 0 ? Math.max(...bids.map(bid => bid.amount)) : 0;
-    const currentPrice = Math.max(item.price, highestBid);
-    
-    modal.innerHTML = `
-        <div class="modal-content item-detail-modal">
-            <div class="modal-header">
-                <h2><i class="fas fa-info-circle"></i> ${escapeHtml(item.name)}</h2>
-                <span class="close">&times;</span>
-            </div>
-            <div class="item-detail-content">
-                <div class="item-gallery">
-                    <div class="main-image">
-                        <img id="mainDisplayImage" src="${images[0].data}" alt="${item.name}">
-                    </div>
-                    ${images.length > 1 ? `
-                        <div class="thumbnail-gallery">
-                            ${images.map((img, index) => `
-                                <img src="${img.data}" alt="${img.name}" 
-                                     class="thumbnail ${index === 0 ? 'active' : ''}"
-                                     onclick="changeMainImage('${img.data}', this)">
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-                <div class="item-details">
-                    <div class="detail-price-info">
-                        <div class="current-price">${formatPrice(currentPrice)}원</div>
-                        <div class="start-price">시작가: ${formatPrice(item.price)}원</div>
-                        ${item.purchasePrice ? `
-                            <div class="purchase-price">구매가: ${formatPrice(item.purchasePrice)}원</div>
-                        ` : ''}
-                    </div>
-                    <div class="detail-description">${escapeHtml(item.description)}</div>
-                    <div class="detail-seller">
-                        <i class="fas fa-user"></i> ${escapeHtml(item.seller)}
-                    </div>
-                    <div class="detail-date">
-                        <i class="fas fa-clock"></i> 등록일: ${formatDate(item.date)}
-                    </div>
-                    ${item.purchaseDate ? `
-                        <div class="detail-purchase-date">
-                            <i class="fas fa-calendar"></i> 구매일: ${formatDate(item.purchaseDate)}
-                        </div>
-                    ` : ''}
-                    <div class="detail-images-info">
-                        <i class="fas fa-images"></i> ${images.length}장의 사진
-                    </div>
-                    
-                    ${bids.length > 0 ? `
-                        <div class="bid-history">
-                            <h3><i class="fas fa-gavel"></i> 입찰 현황 (${bids.length}건)</h3>
-                            <div class="bid-list">
-                                ${bids.map((bid, index) => `
-                                    <div class="bid-item ${index === 0 ? 'highest-bid' : ''}">
-                                        <div class="bid-amount">${formatPrice(bid.amount)}원</div>
-                                        <div class="bid-info">
-                                            <div class="bid-name">${escapeHtml(bid.bidderName)}</div>
-                                            <div class="bid-time">${formatDate(bid.timestamp)}</div>
-                                            ${isAdmin ? `
-                                                <div class="bid-contact">연락처: ${escapeHtml(bid.bidderContact)}</div>
-                                            ` : ''}
-                                        </div>
-                                    </div>
-                                `).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
-                    
-                    <div class="detail-actions">
-                        ${isAdmin ? `
-                            <button class="btn ${item.isLiveAuction ? 'btn-secondary' : 'btn-warning'}" 
-                                    onclick="toggleLiveAuction(${item.id})">
-                                <i class="fas fa-microphone"></i> 
-                                ${item.isLiveAuction ? '현장경매 해제' : '현장경매 설정'}
-                            </button>
-                        ` : ''}
-                        ${!item.isLiveAuction ? `
-                            <button class="btn btn-primary" onclick="openBidModal(${item.id})">
-                                <i class="fas fa-gavel"></i> 입찰하기
-                            </button>
-                        ` : `
-                            <button class="btn btn-secondary" disabled>
-                                <i class="fas fa-microphone"></i> 현장경매 진행중
-                            </button>
-                        `}
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    document.body.style.overflow = 'hidden';
-    
-    // 모달 닫기 이벤트
-    modal.querySelector('.close').addEventListener('click', () => {
-        document.body.removeChild(modal);
-        document.body.style.overflow = 'auto';
-    });
-    
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            document.body.removeChild(modal);
-            document.body.style.overflow = 'auto';
+    contactInputs.forEach(inputId => {
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.addEventListener('input', function(e) {
+                let value = e.target.value.replace(/[^\d]/g, '');
+                
+                if (value.length >= 3) {
+                    if (value.length <= 7) {
+                        value = value.replace(/(\d{3})(\d+)/, '$1-$2');
+                    } else {
+                        value = value.replace(/(\d{3})(\d{4})(\d+)/, '$1-$2-$3');
+                    }
+                }
+                
+                e.target.value = value;
+            });
         }
     });
 }
 
-// 기존 showItemDetails 함수를 새로운 함수로 교체
-window.showItemDetails = showItemDetailsWithBids;
-
-// 연락처 자동 포맷팅 함수
-function formatPhoneNumber(event) {
-    const input = event.target;
-    let value = input.value.replace(/\D/g, ''); // 숫자만 추출
+// 파일 업로드 설정
+function setupFileUpload() {
+    const fileInput = document.getElementById('itemImage');
+    const fileUploadBtn = document.getElementById('fileUploadBtn');
+    const selectedFilesList = document.getElementById('selectedFilesList');
+    const imagePreview = document.getElementById('imagePreview');
     
-    // 11자리 초과 입력 방지
-    if (value.length > 11) {
-        value = value.slice(0, 11);
-    }
-    
-    // 포맷팅 적용
-    if (value.length <= 3) {
-        input.value = value;
-    } else if (value.length <= 7) {
-        input.value = `${value.slice(0, 3)}-${value.slice(3)}`;
-    } else {
-        input.value = `${value.slice(0, 3)}-${value.slice(3, 7)}-${value.slice(7)}`;
+    if (fileUploadBtn && fileInput) {
+        fileUploadBtn.addEventListener('click', () => fileInput.click());
+        
+        fileInput.addEventListener('change', handleFileSelection);
+        
+        // 드래그 앤 드롭
+        fileUploadBtn.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileUploadBtn.classList.add('drag-over');
+        });
+        
+        fileUploadBtn.addEventListener('dragleave', () => {
+            fileUploadBtn.classList.remove('drag-over');
+        });
+        
+        fileUploadBtn.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileUploadBtn.classList.remove('drag-over');
+            fileInput.files = e.dataTransfer.files;
+            handleFileSelection();
+        });
     }
 }
 
-// 연락처 입력 키다운 이벤트 처리
-function handlePhoneNumberKeydown(event) {
-    const allowedKeys = [
-        'Backspace', 'Delete', 'Tab', 'Escape', 'Enter',
-        'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
-        'Home', 'End'
-    ];
+// 파일 선택 처리
+function handleFileSelection() {
+    const fileInput = document.getElementById('itemImage');
+    const selectedFilesList = document.getElementById('selectedFilesList');
+    const imagePreview = document.getElementById('imagePreview');
     
-    // 허용된 키이거나 Ctrl/Cmd 조합키인 경우 허용
-    if (allowedKeys.includes(event.key) || 
-        event.ctrlKey || event.metaKey ||
-        (event.key >= '0' && event.key <= '9')) {
-        return;
-    }
-    
-    // 그 외의 키는 입력 방지
-    event.preventDefault();
-}
-
-// 현장경매 토글 함수
-async function toggleLiveAuction(itemId) {
-    if (!isAdmin) {
-        showNotification('관리자만 현장경매를 설정할 수 있습니다.', 'error');
-        return;
-    }
-    
-    const item = items.find(item => item.id === itemId);
-    if (!item) {
-        showNotification('물건을 찾을 수 없습니다.', 'error');
-        return;
-    }
-    
-    // 현장경매 상태 토글
-    item.isLiveAuction = !item.isLiveAuction;
-    
-    try {
-        // Firebase에 저장
-        await saveItems();
+    if (fileInput.files.length > 0) {
+        selectedFilesList.innerHTML = '';
+        imagePreview.innerHTML = '';
         
-        // 화면 업데이트
-        renderItems();
-        
-        // 상세보기 모달 닫기
-        const openModals = document.querySelectorAll('.modal[style*="block"]');
-        openModals.forEach(modal => {
-            if (!modal.id) { // 동적으로 생성된 모달
-                document.body.removeChild(modal);
+        Array.from(fileInput.files).forEach((file, index) => {
+            // 파일 목록에 추가
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            fileItem.innerHTML = `
+                <span>${file.name}</span>
+                <button type="button" onclick="removeFile(${index})" class="remove-file-btn">×</button>
+            `;
+            selectedFilesList.appendChild(fileItem);
+            
+            // 이미지 미리보기
+            if (file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const imgContainer = document.createElement('div');
+                    imgContainer.className = 'image-preview-item';
+                    imgContainer.innerHTML = `
+                        <img src="${e.target.result}" alt="미리보기">
+                        <button type="button" onclick="removeFile(${index})" class="remove-preview-btn">×</button>
+                    `;
+                    imagePreview.appendChild(imgContainer);
+                };
+                reader.readAsDataURL(file);
             }
         });
-        document.body.style.overflow = 'auto';
-        
-        const message = item.isLiveAuction ? 
-            `"${item.name}" 현장경매가 설정되었습니다.` : 
-            `"${item.name}" 현장경매가 해제되었습니다.`;
-        showNotification(message, 'success');
-        
-        console.log('현장경매 상태 변경:', item.name, '→', item.isLiveAuction);
-        
-    } catch (error) {
-        console.error('현장경매 설정 저장 중 오류:', error);
-        showNotification('현장경매 설정 중 오류가 발생했습니다.', 'error');
-        
-        // 실패 시 상태 되돌리기
-        item.isLiveAuction = !item.isLiveAuction;
     }
 }
 
-// 전역 함수로 노출
-window.openBidModal = openBidModal;
-window.generateRandomName = generateRandomName;
-window.toggleLiveAuction = toggleLiveAuction;
+// 파일 제거
+function removeFile(index) {
+    const fileInput = document.getElementById('itemImage');
+    const dt = new DataTransfer();
+    
+    Array.from(fileInput.files).forEach((file, i) => {
+        if (i !== index) {
+            dt.items.add(file);
+        }
+    });
+    
+    fileInput.files = dt.files;
+    handleFileSelection();
+}
 
-// 초기화 시 입찰 이벤트 리스너 설정
-document.addEventListener('DOMContentLoaded', function() {
-    setupBidEventListeners();
-}); 
+// 모달 열기/닫기 함수들
+function openAddItemModal() {
+    document.getElementById('addItemModal').style.display = 'block';
+}
+
+function openAdminModal() {
+    if (isAdmin) {
+        // 이미 관리자로 로그인된 경우 로그아웃
+        handleAdminLogout();
+    } else {
+        document.getElementById('adminModal').style.display = 'block';
+    }
+}
+
+function closeModals() {
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        modal.style.display = 'none';
+    });
+}
+
+// 물건 등록 처리
+async function handleAddItem(event) {
+    event.preventDefault();
+    
+    const formData = new FormData(event.target);
+    const imageFiles = document.getElementById('itemImage').files;
+    
+    try {
+        // 이미지 업로드 및 압축 (이미지가 없어도 빈 배열로 처리)
+        let imageUrls = [];
+        if (imageFiles.length > 0) {
+            imageUrls = await Promise.all(
+                Array.from(imageFiles).map(file => compressAndConvertToBase64(file))
+            );
+        }
+        
+        // 사용기간 텍스트 생성
+        const yearsValue = formData.get('usageYears');
+        const years = parseFloat(yearsValue) || 0;
+        const months = parseInt(formData.get('usageMonths')) || 0;
+        
+        let usagePeriodText = '';
+        if (years === 0 && months === 0) {
+            usagePeriodText = '신제품 (미사용)';
+        } else if (yearsValue === '0.5') {
+            // "1년 미만" 옵션인 경우
+            usagePeriodText = months > 0 ? `1년 미만 (${months}개월)` : '1년 미만';
+        } else {
+            const yearText = years > 0 ? `${years}년` : '';
+            const monthText = months > 0 ? `${months}개월` : '';
+            
+            if (years >= 10) {
+                usagePeriodText = '10년 이상';
+            } else {
+                usagePeriodText = [yearText, monthText].filter(Boolean).join(' ') || '신제품';
+            }
+        }
+        
+        const itemData = {
+            id: generateId(),
+            name: formData.get('itemName'),
+            images: imageUrls,
+            usagePeriod: usagePeriodText,
+            usageYears: years,
+            usageMonths: months,
+            purchasePrice: parseInt(formData.get('purchasePrice')),
+            price: parseInt(formData.get('itemPrice')),
+            description: formData.get('itemDescription'),
+            sellerName: formData.get('sellerName'),
+            sellerContact: formData.get('sellerContact'),
+            timestamp: Date.now(),
+            status: 'available' // available, sold
+        };
+        
+        // 로컬 스토리지에 저장
+        const items = loadFromLocalStorage('items', []);
+        items.push(itemData);
+        const saved = saveToLocalStorage('items', items);
+        
+        if (saved) {
+            alert('물건이 성공적으로 등록되었습니다!');
+            closeModals();
+            event.target.reset();
+            document.getElementById('imagePreview').innerHTML = '';
+            document.getElementById('selectedFilesList').innerHTML = '';
+            
+            // 목록 새로고침
+            loadItems();
+        } else {
+            throw new Error('로컬 스토리지 저장에 실패했습니다.');
+        }
+        
+    } catch (error) {
+        console.error('물건 등록 중 오류 발생:', error);
+        alert('물건 등록 중 오류가 발생했습니다: ' + error.message);
+    }
+}
+
+// 이미지 압축 및 Base64 변환
+function compressAndConvertToBase64(file) {
+    return new Promise((resolve) => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        img.onload = function() {
+            const maxWidth = 800;
+            const maxHeight = 600;
+            let { width, height } = img;
+            
+            if (width > height) {
+                if (width > maxWidth) {
+                    height = height * maxWidth / width;
+                    width = maxWidth;
+                }
+            } else {
+                if (height > maxHeight) {
+                    width = width * maxHeight / height;
+                    height = maxHeight;
+                }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            canvas.toBlob((blob) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+            }, 'image/jpeg', 0.8);
+        };
+        
+        img.src = URL.createObjectURL(file);
+    });
+}
+
+
+
+// 물건 목록 로드
+function loadItems() {
+    const items = loadFromLocalStorage('items', []);
+    currentItems = items;
+    
+    sortItems();
+    displayItems();
+}
+
+// 물건 표시
+function displayItems() {
+    const itemsList = document.getElementById('itemsList');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (currentItems.length === 0) {
+        itemsList.style.display = 'none';
+        emptyState.style.display = 'flex';
+        return;
+    }
+    
+    itemsList.style.display = 'grid';
+    emptyState.style.display = 'none';
+    
+    itemsList.innerHTML = currentItems.map(item => createItemCard(item)).join('');
+}
+
+// 물건 카드 생성
+function createItemCard(item) {
+    const isSold = item.status === 'sold';
+    
+    // 당근마켓 스타일의 이미지
+    const imageHtml = item.images && item.images.length > 0 
+        ? `<div class="carrot-item-image" onclick="openItemDetail('${item.id}')">
+             <img src="${item.images[0]}" alt="${item.name}" loading="lazy">
+             ${item.images.length > 1 ? `<div class="image-count">${item.images.length}</div>` : ''}
+           </div>`
+        : `<div class="carrot-item-image carrot-no-image" onclick="openItemDetail('${item.id}')">
+             <i class="fas fa-image"></i>
+           </div>`;
+    
+    // 위치 정보 (랜덤으로 생성)
+    const locations = ['인계동', '영통구', '수원시', '팔달구', '장안구', '연무동', '매탄동', '권선구'];
+    const distance = `${(Math.random() * 5 + 0.1).toFixed(1)}km`;
+    const location = locations[Math.floor(Math.random() * locations.length)];
+    const timeAgo = getTimeAgo(item.timestamp);
+    
+    // 좋아요, 채팅 수 (랜덤으로 생성)
+    const likeCount = Math.floor(Math.random() * 50) + 1;
+    const chatCount = Math.floor(Math.random() * 30) + 1;
+    
+    // 관리자 액션 버튼들
+    const adminActions = () => {
+        if (!isAdmin) return '';
+        
+        let actions = '';
+        if (isSold) {
+            actions += `<button onclick="deleteItem('${item.id}')" class="carrot-admin-btn carrot-admin-delete" title="삭제">
+                           <i class="fas fa-trash"></i>
+                       </button>`;
+        } else {
+            actions += `<button onclick="deleteItem('${item.id}')" class="carrot-admin-btn carrot-admin-delete" title="삭제">
+                           <i class="fas fa-trash"></i>
+                       </button>
+                       <button onclick="openCompleteModal('${item.id}')" class="carrot-admin-btn carrot-admin-complete" title="거래완료">
+                           <i class="fas fa-check"></i>
+                       </button>`;
+        }
+        return `<div class="carrot-admin-actions">${actions}</div>`;
+    };
+    
+    return `
+        <div class="carrot-item ${isSold ? 'sold' : ''}" data-id="${item.id}" onclick="openItemDetail('${item.id}')">
+            ${imageHtml}
+            <div class="carrot-item-content">
+                <h3 class="carrot-item-title">${item.name}${isSold ? ' (거래완료)' : ''}</h3>
+                <div class="carrot-item-location">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <span>${distance} • ${location} • ${timeAgo}</span>
+                </div>
+                <div class="carrot-item-price">${item.price.toLocaleString()}원</div>
+                <div class="carrot-item-stats">
+                    <span class="carrot-stat">
+                        <i class="fas fa-comment"></i> ${chatCount}
+                    </span>
+                    <span class="carrot-stat">
+                        <i class="fas fa-heart"></i> ${likeCount}
+                    </span>
+                </div>
+                ${!isSold && !isAdmin ? `
+                    <button onclick="event.stopPropagation(); openCompleteModal('${item.id}')" class="carrot-complete-btn" title="거래완료">
+                        <i class="fas fa-check"></i> 거래완료
+                    </button>
+                ` : ''}
+            </div>
+            ${adminActions()}
+        </div>
+    `;
+}
+
+// 이미지 변경
+function changeImage(itemId, imageIndex) {
+    const card = document.querySelector(`[data-id="${itemId}"]`);
+    const images = card.querySelectorAll('.item-image');
+    const indicators = card.querySelectorAll('.indicator');
+    
+    images.forEach((img, index) => {
+        img.classList.toggle('active', index === imageIndex);
+    });
+    
+    indicators.forEach((indicator, index) => {
+        indicator.classList.toggle('active', index === imageIndex);
+    });
+}
+
+// 이미지 네비게이션
+function navigateImage(itemId, direction) {
+    const card = document.querySelector(`[data-id="${itemId}"]`);
+    const images = card.querySelectorAll('.item-image');
+    const currentIndex = Array.from(images).findIndex(img => img.classList.contains('active'));
+    
+    let newIndex;
+    if (direction === 1) { // 다음
+        newIndex = (currentIndex + 1) % images.length;
+    } else { // 이전
+        newIndex = currentIndex === 0 ? images.length - 1 : currentIndex - 1;
+    }
+    
+    changeImage(itemId, newIndex);
+}
+
+
+
+// 상세보기 모달 열기
+function openItemDetail(itemId) {
+    const item = currentItems.find(i => i.id === itemId);
+    if (!item) return;
+    
+    currentDetailItem = item;
+    currentDetailImageIndex = 0;
+    
+    const modal = document.getElementById('itemDetailModal');
+    const content = document.getElementById('itemDetailContent');
+    
+    // 상세보기 내용 생성
+    content.innerHTML = createItemDetailContent(item);
+    modal.style.display = 'block';
+    
+    // 애니메이션을 위해 잠시 후 show 클래스 추가
+    setTimeout(() => {
+        modal.querySelector('.modal-content').classList.add('show');
+    }, 50);
+}
+
+// 상세보기 내용 생성
+function createItemDetailContent(item) {
+    const isSold = item.status === 'sold';
+    
+    const imagesHtml = item.images && item.images.length > 0 
+        ? `<div class="carrot-detail-images">
+             <div class="carrot-image-container">
+                 <img src="${item.images[0]}" alt="${item.name}" class="carrot-main-image" id="detailMainImage">
+                 ${item.images.length > 1 ? 
+                     `<div class="carrot-image-pagination">${1}/${item.images.length}</div>
+                      <div class="carrot-image-nav">
+                          <button class="carrot-nav-btn prev" onclick="navigateDetailImage(-1)" ${item.images.length <= 1 ? 'style="display:none"' : ''}>
+                              <i class="fas fa-chevron-left"></i>
+                          </button>
+                          <button class="carrot-nav-btn next" onclick="navigateDetailImage(1)" ${item.images.length <= 1 ? 'style="display:none"' : ''}>
+                              <i class="fas fa-chevron-right"></i>
+                          </button>
+                      </div>` 
+                     : ''
+                 }
+             </div>
+           </div>`
+        : '<div class="carrot-no-image"><i class="fas fa-camera"></i><span>사진 없음</span></div>';
+    
+    const statusBadge = () => {
+        if (isSold) return '<span class="status-badge sold">거래완료</span>';
+        return '<span class="status-badge available">판매중</span>';
+    };
+    
+    const contactInfo = () => {
+        let info = `<div class="seller-info">
+                      <h4>📞 판매자 정보</h4>
+                      <p><strong>이름:</strong> ${item.sellerName}</p>`;
+        
+        if (isAdmin) {
+            info += `<p><strong>연락처:</strong> ${item.sellerContact}</p>`;
+        } else {
+            info += `<p class="contact-hidden">💡 연락처는 관리자만 볼 수 있습니다</p>`;
+        }
+        
+        info += '</div>';
+        
+        return info;
+    };
+    
+    const actionButtons = () => {
+        let buttons = '';
+        
+        // 거래 완료된 물건에는 관리자 삭제 버튼만 표시
+        if (isSold) {
+            if (isAdmin) {
+                buttons += `<button onclick="deleteItem('${item.id}')" class="btn btn-danger">
+                               <i class="fas fa-trash"></i> 삭제
+                           </button>`;
+            }
+            return buttons ? `<div class="detail-actions">${buttons}</div>` : '';
+        }
+        
+        // 판매중인 물건에는 거래완료 버튼만 표시
+        // 관리자는 모든 기능 사용 가능
+        if (isAdmin) {
+            buttons += `<button onclick="deleteItem('${item.id}')" class="btn btn-danger">
+                           <i class="fas fa-trash"></i> 삭제
+                       </button>`;
+            
+            // 관리자는 언제든 거래완료 가능
+            buttons += `<button onclick="openCompleteModal('${item.id}')" class="btn btn-success">
+                           <i class="fas fa-check"></i> 거래완료
+                       </button>`;
+        } else {
+            // 일반 사용자(판매자)도 언제든 거래완료 가능 - 판매자 인증 필요
+            buttons += `<button onclick="openCompleteModal('${item.id}')" class="btn btn-success" title="판매자 인증 후 거래 완료">
+                           <i class="fas fa-check"></i> 거래완료
+                       </button>`;
+        }
+        
+        return buttons ? `<div class="detail-actions">${buttons}</div>` : '';
+    };
+    
+    return `
+        <div class="carrot-detail-content">
+            <!-- 이미지 섹션 -->
+            ${imagesHtml}
+            
+            <!-- 판매자 정보 -->
+            <div class="carrot-seller-section">
+                <div class="carrot-seller-info">
+                    <div class="carrot-seller-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="carrot-seller-details">
+                        <div class="carrot-seller-name">${item.sellerName}</div>
+                        <div class="carrot-seller-location">수원시 팔달구 인계동</div>
+                    </div>
+                    <div class="carrot-seller-temp">
+                        <span class="carrot-temp-value">36.5°C</span>
+                        <i class="fas fa-smile carrot-temp-icon"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 상품 정보 -->
+            <div class="carrot-product-section">
+                <h1 class="carrot-product-title">${item.name}</h1>
+                <div class="carrot-product-meta">
+                    <span class="carrot-category">${item.usagePeriod || '사용기간 정보 없음'}</span>
+                    <span class="carrot-time">${getTimeAgo(item.timestamp)}</span>
+                </div>
+                <div class="carrot-product-price">${item.price.toLocaleString()}원</div>
+                <div class="carrot-purchase-price">구매가: ${item.purchasePrice.toLocaleString()}원</div>
+                
+                <div class="carrot-product-description">
+                    ${item.description}
+                </div>
+                
+                <div class="carrot-product-stats">
+                    <span>관심 ${Math.floor(Math.random() * 15) + 1}</span>
+                    <span>•</span>
+                    <span>채팅 ${Math.floor(Math.random() * 5)}</span>
+                    <span>•</span>
+                    <span>조회 ${Math.floor(Math.random() * 100) + 20}</span>
+                </div>
+                
+                ${statusBadge()}
+                
+                ${contactInfo()}
+            </div>
+            
+            <!-- 하단 액션 버튼 -->
+            <div class="carrot-bottom-actions">
+                <button class="carrot-heart-btn">
+                    <i class="far fa-heart"></i>
+                </button>
+                <div class="carrot-message-section">
+                    <input type="text" placeholder="안녕하세요. 구매 가능할까요?" class="carrot-message-input">
+                    <button class="carrot-send-btn">보내기</button>
+                </div>
+            </div>
+            
+            ${actionButtons()}
+        </div>
+    `;
+}
+
+// 상세보기에서 이미지 변경
+function changeDetailImage(imageIndex) {
+    const mainImage = document.getElementById('detailMainImage');
+    const thumbnails = document.querySelectorAll('.detail-thumbnail');
+    const item = currentItems.find(i => i.images && i.images.length > imageIndex);
+    
+    if (item && mainImage) {
+        mainImage.src = item.images[imageIndex];
+        
+        thumbnails.forEach((thumb, index) => {
+            thumb.classList.toggle('active', index === imageIndex);
+        });
+    }
+}
+
+// 상세보기 이미지 네비게이션
+let currentDetailImageIndex = 0;
+let currentDetailItem = null;
+
+function navigateDetailImage(direction) {
+    const mainImage = document.getElementById('detailMainImage');
+    const pagination = document.querySelector('.carrot-image-pagination');
+    
+    if (!currentDetailItem || !currentDetailItem.images || currentDetailItem.images.length <= 1) {
+        return;
+    }
+    
+    currentDetailImageIndex += direction;
+    
+    if (currentDetailImageIndex < 0) {
+        currentDetailImageIndex = currentDetailItem.images.length - 1;
+    } else if (currentDetailImageIndex >= currentDetailItem.images.length) {
+        currentDetailImageIndex = 0;
+    }
+    
+    if (mainImage) {
+        mainImage.src = currentDetailItem.images[currentDetailImageIndex];
+    }
+    
+    if (pagination) {
+        pagination.textContent = `${currentDetailImageIndex + 1}/${currentDetailItem.images.length}`;
+    }
+}
+
+// 시간 표시 함수
+function getTimeAgo(timestamp) {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    
+    if (minutes < 1) return '방금 전';
+    if (minutes < 60) return `${minutes}분 전`;
+    if (hours < 24) return `${hours}시간 전`;
+    if (days < 7) return `${days}일 전`;
+    
+    return new Date(timestamp).toLocaleDateString();
+}
+
+// 거래 완료 모달 열기 (판매자 인증 포함)
+function openCompleteModal(itemId) {
+    const item = currentItems.find(i => i.id === itemId);
+    
+    if (!item) {
+        alert('오류: 해당 물건을 찾을 수 없습니다. 페이지를 새로고침해주세요.');
+        return;
+    }
+    
+    // 관리자는 바로 거래 완료 모달 열기
+    if (isAdmin) {
+        currentItemIdForComplete = itemId;
+        
+        const completeModal = document.getElementById('completeModal');
+        if (completeModal) {
+            completeModal.style.display = 'block';
+        }
+        return;
+    }
+    
+    // 일반 사용자는 판매자 인증 필요
+    currentItemForAuth = item;
+    authAction = 'complete';
+    
+    // 모달 제목 변경
+    const modalTitle = document.querySelector('#sellerAuthModal h2');
+    if (modalTitle) {
+        modalTitle.innerHTML = '<i class="fas fa-user-check"></i> 판매자 인증';
+    }
+    
+    // 안내 문구 변경
+    const authInfo = document.querySelector('#sellerAuthModal .auth-info p');
+    if (authInfo) {
+        authInfo.innerHTML = '<i class="fas fa-info-circle"></i> 거래 완료를 위해 판매자 정보를 확인해주세요.';
+    }
+    
+    const authModal = document.getElementById('sellerAuthModal');
+    if (authModal) {
+        authModal.style.display = 'block';
+    }
+}
+
+// 판매자 인증 모달 닫기
+function closeSellerAuthModal() {
+    document.getElementById('sellerAuthModal').style.display = 'none';
+    currentItemForAuth = null;
+    authAction = null;
+    
+    // 폼 초기화
+    const form = document.getElementById('sellerAuthForm');
+    if (form) {
+        form.reset();
+    }
+}
+
+// 판매자 인증 처리
+async function handleSellerAuth(event) {
+    event.preventDefault();
+    
+    try {
+        if (!currentItemForAuth || !currentItemForAuth.id) {
+            alert('인증할 물건 정보가 없습니다.');
+            return;
+        }
+        
+        const formData = new FormData(event.target);
+        const inputName = formData.get('authSellerName')?.trim() || '';
+        const inputContact = formData.get('authSellerContact')?.trim() || '';
+        
+        // 판매자 정보 null/undefined 체크
+        if (!currentItemForAuth.sellerName || !currentItemForAuth.sellerContact) {
+            alert('오류: 판매자 정보가 누락되었습니다.\n물건 등록 시 판매자명과 연락처가 제대로 저장되지 않았을 수 있습니다.');
+            return;
+        }
+        
+        // 판매자 정보 확인 (대소문자 무시, 연락처 숫자만 비교)
+        const inputNameNormalized = inputName.toLowerCase().replace(/\s+/g, '');
+        const sellerNameNormalized = currentItemForAuth.sellerName.toLowerCase().replace(/\s+/g, '');
+        const inputContactNormalized = inputContact.replace(/[^\d]/g, '');
+        const sellerContactNormalized = currentItemForAuth.sellerContact.replace(/[^\d]/g, '');
+        
+        if (inputNameNormalized === sellerNameNormalized && 
+            inputContactNormalized === sellerContactNormalized) {
+            
+            // 인증 성공
+            console.log('✅ 판매자 인증 성공!');
+            console.log('📋 인증된 아이템:', currentItemForAuth);
+            console.log('🎯 authAction:', authAction);
+            
+            const itemId = currentItemForAuth.id;
+            const currentAuthAction = authAction; // authAction 값을 미리 저장
+            
+            // 모달 닫기 (하지만 변수 초기화는 나중에)
+            document.getElementById('sellerAuthModal').style.display = 'none';
+            const form = document.getElementById('sellerAuthForm');
+            if (form) {
+                form.reset();
+            }
+            
+            if (currentAuthAction === 'complete') {
+                console.log('🎯 거래완료 처리 분기 진입');
+                // 거래 완료 처리
+                currentItemIdForComplete = itemId;
+                console.log('🔄 currentItemIdForComplete 설정:', currentItemIdForComplete);
+                
+                // 판매자 인증 성공시 바로 거래완료 처리
+                console.log('📞 confirmCompleteTransaction 호출 시작');
+                
+                // Promise 방식으로 호출
+                confirmCompleteTransaction()
+                    .then(() => {
+                        console.log('✅ confirmCompleteTransaction 완료');
+                        // 거래완료 처리가 성공한 후에 변수 초기화
+                        currentItemForAuth = null;
+                        authAction = null;
+                    })
+                    .catch((error) => {
+                        console.error('❌ 거래완료 처리 오류:', error);
+                        alert('거래완료 처리 중 오류가 발생했습니다: ' + error.message);
+                        // 오류 발생시에도 변수 초기화
+                        currentItemForAuth = null;
+                        authAction = null;
+                    });
+            } else {
+                console.log('❓ authAction이 complete가 아님:', currentAuthAction);
+                // 거래완료가 아닌 경우에도 변수 초기화
+                currentItemForAuth = null;
+                authAction = null;
+            }
+            
+        } else {
+            // 인증 실패 - 구체적인 오류 정보 제공
+            let errorMessage = '판매자 정보가 일치하지 않습니다.\n\n';
+            
+            if (inputNameNormalized !== sellerNameNormalized) {
+                errorMessage += `❌ 이름 불일치\n`;
+                errorMessage += `입력: "${inputName}"\n`;
+                errorMessage += `등록된 이름: "${currentItemForAuth.sellerName}"\n\n`;
+            }
+            
+            if (inputContactNormalized !== sellerContactNormalized) {
+                errorMessage += `❌ 연락처 불일치\n`;
+                errorMessage += `입력: "${inputContact}" (숫자만: ${inputContactNormalized})\n`;
+                errorMessage += `등록된 연락처: "${currentItemForAuth.sellerContact}" (숫자만: ${sellerContactNormalized})\n\n`;
+            }
+            
+            errorMessage += '등록시 입력한 정보와 정확히 일치하게 입력해주세요.';
+            
+            alert(errorMessage);
+            
+            // 입력 필드 초기화
+            const nameInput = document.getElementById('authSellerName');
+            const contactInput = document.getElementById('authSellerContact');
+            
+            if (nameInput) nameInput.value = '';
+            if (contactInput) contactInput.value = '';
+            if (nameInput) nameInput.focus();
+        }
+        
+    } catch (error) {
+        console.error('판매자 인증 중 오류 발생:', error);
+        alert('인증 처리 중 오류가 발생했습니다.');
+    }
+}
+
+// 거래 완료 처리 확인
+async function confirmCompleteTransaction() {
+    console.log('🔄 거래완료 처리 시작:', currentItemIdForComplete);
+    
+    if (!currentItemIdForComplete) {
+        alert('오류: 거래할 물건 정보가 없습니다.\n\n다시 시도해주세요.');
+        throw new Error('currentItemIdForComplete가 없습니다');
+    }
+    
+    try {
+        const items = loadFromLocalStorage('items', []);
+        console.log('📦 저장된 아이템 개수:', items.length);
+        
+        const itemIndex = items.findIndex(item => item.id === currentItemIdForComplete);
+        console.log('🔍 찾은 아이템 인덱스:', itemIndex);
+        
+        if (itemIndex !== -1) {
+            const itemName = items[itemIndex].name;
+            console.log('📝 변경 전 상태:', items[itemIndex].status);
+            
+            // 상태를 sold로 변경
+            items[itemIndex].status = 'sold';
+            console.log('✅ 변경 후 상태:', items[itemIndex].status);
+            
+            // 저장 시도
+            const saveResult = saveToLocalStorage('items', items);
+            console.log('💾 저장 결과:', saveResult);
+            
+            if (saveResult) {
+                alert(`"${itemName}" 거래가 완료되었습니다!`);
+                
+                // UI 업데이트
+                currentItemIdForComplete = null;
+                
+                // 모달 닫기
+                const detailModal = document.getElementById('itemDetailModal');
+                if (detailModal) {
+                    detailModal.style.display = 'none';
+                }
+                
+                // 목록 새로고침 - 강제로 다시 로드
+                console.log('🔄 UI 업데이트 시작');
+                const updatedItems = loadFromLocalStorage('items', []);
+                currentItems = updatedItems;
+                console.log('📋 업데이트된 currentItems:', currentItems.length);
+                displayItems();
+                console.log('✅ UI 업데이트 완료');
+                
+                return true;
+            } else {
+                throw new Error('저장에 실패했습니다.');
+            }
+        } else {
+            const errorMsg = '해당 물건을 찾을 수 없습니다. 페이지를 새로고침해주세요.';
+            alert('오류: ' + errorMsg);
+            throw new Error(errorMsg);
+        }
+        
+    } catch (error) {
+        console.error('❌ 거래완료 처리 오류:', error);
+        alert('거래 완료 처리 중 오류가 발생했습니다: ' + error.message);
+        throw error;
+    }
+}
+
+
+
+// 물건 삭제
+async function deleteItem(itemId) {
+    if (!isAdmin) {
+        alert('관리자만 삭제할 수 있습니다.');
+        return;
+    }
+    
+    if (confirm('정말로 이 물건을 삭제하시겠습니까?')) {
+        try {
+            const items = loadFromLocalStorage('items', []);
+            const filteredItems = items.filter(item => item.id !== itemId);
+            saveToLocalStorage('items', filteredItems);
+            
+            alert('물건이 삭제되었습니다.');
+            
+            // 목록 새로고침
+            loadItems();
+        } catch (error) {
+            console.error('삭제 중 오류 발생:', error);
+            alert('삭제 중 오류가 발생했습니다.');
+        }
+    }
+}
+
+// 정렬
+function sortItems() {
+    const sortBy = document.getElementById('sortSelect').value;
+    
+    currentItems.sort((a, b) => {
+        switch (sortBy) {
+            case 'latest':
+                return b.timestamp - a.timestamp;
+            case 'priceAsc':
+                return a.price - b.price;
+            case 'priceDesc':
+                return b.price - a.price;
+            case 'name':
+                return a.name.localeCompare(b.name);
+            default:
+                return b.timestamp - a.timestamp;
+        }
+    });
+    
+    displayItems();
+}
+
+// 관리자 로그인
+async function handleAdminLogin() {
+    const password = document.getElementById('adminPassword').value;
+    
+    if (password === 'admin123') {
+        isAdmin = true;
+        localStorage.setItem('adminLoggedIn', 'true');
+        
+        updateAdminUI();
+        closeModals();
+        alert('🔒 관리자로 로그인되었습니다!\n\n📋 관리자 권한:\n• 모든 물건 삭제 가능\n• 모든 거래 완료 처리 가능\n• 모든 연락처 정보 조회 가능\n\n⚠️ 삭제 버튼이 각 물건에 표시됩니다.');
+    } else {
+        alert('❌ 비밀번호가 틀렸습니다.\n관리자 비밀번호를 확인해주세요.');
+    }
+}
+
+// 관리자 로그아웃
+async function handleAdminLogout() {
+    isAdmin = false;
+    localStorage.removeItem('adminLoggedIn');
+    
+    updateAdminUI();
+    alert('👋 관리자에서 로그아웃되었습니다.\n삭제 버튼이 숨겨지고 일반 사용자 모드로 전환됩니다.');
+}
+
+// 관리자 UI 업데이트
+function updateAdminUI() {
+    const adminBtn = document.getElementById('adminBtn');
+    const adminStatus = document.getElementById('adminStatus');
+    
+    if (isAdmin) {
+        adminBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> 관리자 로그아웃';
+        adminBtn.classList.remove('btn-secondary');
+        adminBtn.classList.add('btn-danger');
+        adminBtn.title = '관리자 로그아웃';
+        
+        // 관리자 상태 표시
+        if (adminStatus) {
+            adminStatus.style.display = 'flex';
+        }
+    } else {
+        adminBtn.innerHTML = '<i class="fas fa-key"></i> 관리자 로그인';
+        adminBtn.classList.remove('btn-danger');
+        adminBtn.classList.add('btn-secondary');
+        adminBtn.title = '관리자 로그인';
+        
+        // 관리자 상태 숨기기
+        if (adminStatus) {
+            adminStatus.style.display = 'none';
+        }
+    }
+    
+    // 관리자 버튼은 항상 표시
+    adminBtn.style.display = 'inline-block';
+    
+    displayItems(); // 관리자 상태 변경 시 아이템 다시 표시
+}
+
+
+
+
+
+// 디버깅용 테스트 함수들 (개발자 도구에서 사용)
+window.testComplete = {
+    // 현재 상태 확인
+    checkStatus: () => {
+        console.log('=== 현재 상태 ===');
+        console.log('관리자 모드:', isAdmin);
+        console.log('저장된 아이템 수:', loadFromLocalStorage('items', []).length);
+        console.log('현재 아이템 수:', currentItems.length);
+        console.log('currentItemIdForComplete:', currentItemIdForComplete);
+        console.log('currentItemForAuth:', currentItemForAuth);
+        console.log('authAction:', authAction);
+        
+        const items = loadFromLocalStorage('items', []);
+        console.log('저장된 아이템들:', items);
+    },
+    
+    // 샘플 아이템 추가 (테스트용)
+    addTestItem: () => {
+        const testItem = {
+            id: generateId(),
+            name: '테스트 물건',
+            images: [],
+            usagePeriod: '1년',
+            usageYears: 1,
+            usageMonths: 0,
+            purchasePrice: 100000,
+            price: 50000,
+            description: '거래완료 테스트용 물건입니다.',
+            sellerName: '테스트',
+            sellerContact: '010-1234-5678',
+            timestamp: Date.now(),
+            status: 'available'
+        };
+        
+        const items = loadFromLocalStorage('items', []);
+        items.push(testItem);
+        saveToLocalStorage('items', items);
+        loadItems();
+        
+        console.log('✅ 테스트 아이템 추가 완료');
+        console.log('📋 아이템 정보:', testItem);
+        console.log('💡 거래완료 테스트 방법:');
+        console.log('1. 거래완료 버튼 클릭');
+        console.log('2. 이름: 테스트');
+        console.log('3. 연락처: 010-1234-5678');
+    },
+    
+    // 모든 데이터 삭제
+    clearAll: () => {
+        localStorage.removeItem('items');
+        loadItems();
+        console.log('✅ 모든 데이터 삭제 완료');
+    }
+};
+
+
+
+// 전역 함수로 내보내기 (HTML에서 onclick으로 사용)
+window.changeImage = changeImage;
+window.navigateImage = navigateImage;
+window.navigateDetailImage = navigateDetailImage;
+window.openCompleteModal = openCompleteModal;
+window.deleteItem = deleteItem;
+window.removeFile = removeFile;
+window.openItemDetail = openItemDetail;
+window.changeDetailImage = changeDetailImage;
+window.closeSellerAuthModal = closeSellerAuthModal; 
