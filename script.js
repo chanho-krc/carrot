@@ -1,1563 +1,278 @@
-// Firebase 모듈 가져오기
-import { ref, set, get, push, remove, onValue, update } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
-
-// 전역 변수
-let isAdmin = false;
+// 사내 중고거래 - localStorage 버전
 let currentItems = [];
-let currentItemIdForComplete = null;
-let currentItemForAuth = null; // 인증이 필요한 아이템
-let authAction = null; // 'complete' 또는 'cancel'
+let isEditing = false;
+let editingId = null;
 
-// Firebase 헬퍼 함수들
-function generateId() {
-    return Date.now().toString() + Math.random().toString(36).substr(2, 9);
-}
-
-async function saveToFirebase(key, data) {
-    try {
-        console.log('💾 Firebase에 데이터 저장 시도:', key);
-        
-        if (!window.database) {
-            throw new Error('Database 객체가 없습니다');
-        }
-        
-        const dbRef = ref(window.database, key);
-        console.log('📍 Database 참조 생성 완료');
-        
-        await set(dbRef, data);
-        console.log('✅ Firebase 저장 성공');
-        return true;
-    } catch (error) {
-        console.error('❌ Firebase 저장 실패:', error);
-        console.error('오류 세부사항:', error.message);
-        console.error('오류 코드:', error.code);
-        return false;
-    }
-}
-
-async function loadFromFirebase(key, defaultValue = null) {
-    try {
-        console.log('📖 Firebase에서 데이터 로드 시도:', key);
-        
-        if (!window.database) {
-            throw new Error('Database 객체가 없습니다');
-        }
-        
-        const dbRef = ref(window.database, key);
-        console.log('📍 Database 참조 생성 완료');
-        
-        const snapshot = await get(dbRef);
-        console.log('📊 스냅샷 가져오기 완료, 존재 여부:', snapshot.exists());
-        
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            console.log('📋 데이터 로드 성공:', Object.keys(data || {}).length + '개 항목');
-            return data;
-        } else {
-            console.log('📭 데이터 없음, 기본값 반환');
-            return defaultValue;
-        }
-    } catch (error) {
-        console.error('❌ Firebase 로드 실패:', error);
-        console.error('오류 세부사항:', error.message);
-        return defaultValue;
-    }
-}
-
-// 연결 상태 표시 함수
-function showConnectionStatus(message, type) {
-    // 기존 상태 메시지 제거
-    const existingStatus = document.querySelector('.connection-status');
-    if (existingStatus) {
-        existingStatus.remove();
-    }
-    
-    const statusDiv = document.createElement('div');
-    statusDiv.className = `connection-status ${type}`;
-    statusDiv.innerHTML = `
-        <i class="fas ${type === 'success' ? 'fa-wifi' : 'fa-exclamation-triangle'}"></i>
-        <span>${message}</span>
-    `;
-    
-    // 헤더에 추가
-    const header = document.querySelector('header .container');
-    header.appendChild(statusDiv);
-    
-    // 3초 후 자동 제거 (성공 메시지만)
-    if (type === 'success') {
-        setTimeout(() => {
-            statusDiv.remove();
-        }, 3000);
-    }
-}
-
-// 실시간 데이터 리스너 설정
-function setupRealtimeListener() {
-    try {
-        if (!window.database) {
-            throw new Error('Database 객체가 없습니다');
-        }
-        
-        const itemsRef = ref(window.database, 'items');
-        onValue(itemsRef, (snapshot) => {
-            try {
-                const data = snapshot.val();
-                if (data && typeof data === 'object') {
-                    // 객체를 배열로 변환 (null 값 제외)
-                    currentItems = Object.values(data).filter(item => item !== null);
-                    console.log('🔄 Firebase에서 데이터 동기화:', currentItems.length + '개 항목');
-                } else {
-                    // Firebase 데이터가 없으면 localStorage 백업 확인
-                    console.log('📭 Firebase 데이터 없음 - localStorage 백업 확인');
-                    const localBackup = JSON.parse(localStorage.getItem('items') || '[]');
-                    if (localBackup.length > 0) {
-                        currentItems = localBackup;
-                        console.log('📱 localStorage 백업에서 복원:', currentItems.length + '개 항목');
-                    } else {
-                        currentItems = [];
-                    }
-                }
-                sortItems();
-                displayItems();
-                console.log('📱 실시간 데이터 업데이트:', currentItems.length + '개 항목');
-                
-                // 데이터 동기화 성공 표시 (첫 로드 후)
-                if (!window.firstLoadComplete) {
-                    window.firstLoadComplete = true;
-                    showConnectionStatus('모든 기기에서 실시간 동기화됩니다', 'success');
-                }
-                
-                // localStorage에 백업 저장
-                try {
-                    localStorage.setItem('items', JSON.stringify(currentItems));
-                    console.log('📱 localStorage 백업 업데이트 완료');
-                } catch (backupError) {
-                    console.warn('⚠️ localStorage 백업 실패:', backupError);
-                }
-            } catch (snapshotError) {
-                console.error('❌ 스냅샷 처리 오류:', snapshotError);
-            }
-        }, (error) => {
-            console.error('❌ Firebase 리스너 오류:', error);
-            console.error('오류 세부사항:', error.code, error.message);
-            console.log('📱 Firebase 실패 - localStorage 백업 사용');
-            
-            // Firebase 실패 시 localStorage 백업 사용
-            const localBackup = JSON.parse(localStorage.getItem('items') || '[]');
-            if (localBackup.length > 0) {
-                currentItems = localBackup;
-                sortItems();
-                displayItems();
-                console.log('📱 localStorage 백업에서 복원:', currentItems.length + '개 항목');
-                showConnectionStatus('백업 데이터로 복원됨 - Firebase 재연결 시도 중', 'error');
-            } else {
-                showConnectionStatus('실시간 동기화 연결 실패 - 로컬 모드로 전환', 'error');
-                setupLocalStorageFallback();
-            }
-        });
-        
-        console.log('📡 Firebase 실시간 리스너 설정 완료');
-        
-    } catch (error) {
-        console.error('❌ 실시간 리스너 설정 실패:', error);
-        throw error; // 상위 함수에서 처리하도록
-    }
-}
-
-// 로컬스토리지 fallback 설정
-function setupLocalStorageFallback() {
-    // 로컬스토리지에서 데이터 로드
-    const items = JSON.parse(localStorage.getItem('items') || '[]');
-    currentItems = Array.isArray(items) ? items : [];
-    sortItems();
-    displayItems();
-    console.log('📱 로컬 모드로 전환:', currentItems.length + '개 항목');
-}
-
-// DOM이 로드되면 실행
+// DOM 로드 완료 시 초기화
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM 로드 완료');
-    console.log('스크립트 버전: 2024-01-15-Firebase연동');
+    console.log('✅ DOM 로드 완료');
+    console.log('📱 localStorage 버전 시작');
     
-    // 이벤트 리스너 등록 (지연 실행)
+    // 500ms 후 이벤트 리스너 설정 (안정성을 위해)
     setTimeout(() => {
-        console.log('⏰ 이벤트 리스너 설정 시작...');
         setupEventListeners();
-        
-        // 추가 안전장치: 직접 버튼에 이벤트 설정
-        const submitBtn = document.querySelector('#addItemForm button[type="submit"]');
-        if (submitBtn) {
-            console.log('🔘 등록 버튼 직접 이벤트 설정');
-            submitBtn.addEventListener('click', function(e) {
-                console.log('🔘 등록 버튼 직접 클릭됨');
-                e.preventDefault();
-                
-                const form = document.getElementById('addItemForm');
-                if (form) {
-                    handleAddItem({
-                        preventDefault: () => {},
-                        target: form
-                    });
-                }
-            });
-        }
+        loadItemsFromStorage();
     }, 500);
-    
-    // 관리자 상태 확인 (localStorage에서 - 관리자 상태는 로컬 유지)
-    const savedAdminState = localStorage.getItem('adminLoggedIn');
-    if (savedAdminState === 'true') {
-        isAdmin = true;
-        updateAdminUI();
-    }
-    
-    // Firebase 연결 확인 후 실시간 리스너 설정
-    console.log('⏳ Firebase 연결 확인 중...');
-    
-    setTimeout(() => {
-        console.log('🔍 Firebase 상태 체크:', {
-            database: !!window.database,
-            firebaseApp: !!window.firebaseApp
-        });
-        
-        // Firebase 연결 상태와 상관없이 안정적으로 작동하도록 수정
-        if (window.database && window.database !== null) {
-            console.log('✅ Firebase 연결됨 - 실시간 동기화 시도');
-            showConnectionStatus('Firebase 연결됨 - 실시간 동기화 활성화', 'success');
-            
-            try {
-                setupRealtimeListener();
-            } catch (error) {
-                console.error('❌ Firebase 실시간 리스너 설정 실패:', error);
-                console.log('📱 로컬 모드로 전환');
-                showConnectionStatus('실시간 동기화 실패 - 로컬 모드로 작동', 'error');
-                setupLocalStorageFallback();
-            }
-        } else {
-            console.log('📱 Firebase 연결 없음 - 로컬 모드로 시작');
-            showConnectionStatus('로컬 모드로 작동 중 (오프라인)', 'error');
-            setupLocalStorageFallback();
-        }
-    }, 1500);
 });
 
 // 이벤트 리스너 설정
 function setupEventListeners() {
-    console.log('🔧 이벤트 리스너 설정 함수 시작');
+    console.log('🔧 이벤트 리스너 설정 중...');
     
-    // 물건 등록 버튼
-    const addItemBtn = document.getElementById('addItemBtn');
-    if (addItemBtn) {
-        addItemBtn.addEventListener('click', openAddItemModal);
-        console.log('✅ 물건 등록 버튼 이벤트 설정');
+    // 등록 폼 이벤트
+    const itemForm = document.getElementById('itemForm');
+    const addBtn = document.getElementById('addBtn');
+    
+    if (itemForm) {
+        itemForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            console.log('📝 폼 제출 이벤트');
+            handleAddItem();
+        });
+        console.log('✅ 폼 이벤트 리스너 설정');
     }
     
-    // 관리자 버튼
-    const adminBtn = document.getElementById('adminBtn');
-    if (adminBtn) {
-        adminBtn.addEventListener('click', openAdminModal);
+    if (addBtn) {
+        addBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('📝 등록 버튼 클릭 이벤트');
+            handleAddItem();
+        });
+        console.log('✅ 버튼 이벤트 리스너 설정');
     }
     
-    // 모달 닫기 버튼들
-    const closeButtons = document.querySelectorAll('.close');
-    closeButtons.forEach(button => {
-        button.addEventListener('click', closeModals);
-    });
-    
-    // 모달 외부 클릭시 닫기
-    window.addEventListener('click', function(event) {
-        const modals = document.querySelectorAll('.modal');
-        modals.forEach(modal => {
-            if (event.target === modal) {
-                modal.style.display = 'none';
-            }
-        });
-    });
-    
-    // 물건 등록 폼 - 여러 방식으로 시도
-    const addItemForm = document.getElementById('addItemForm');
-    if (addItemForm) {
-        console.log('✅ 등록 폼 찾음 - 이벤트 리스너 설정 중...');
-        
-        // 방법 1: submit 이벤트
-        addItemForm.addEventListener('submit', function(e) {
-            console.log('📝 폼 submit 이벤트 발생');
-            handleAddItem(e);
-        });
-        
-        // 방법 2: 폼 내부 버튼 직접 설정
-        const submitButton = addItemForm.querySelector('button[type="submit"]');
-        if (submitButton) {
-            console.log('✅ submit 버튼 찾음 - 클릭 이벤트 추가 설정');
-            submitButton.addEventListener('click', function(e) {
-                console.log('🔘 submit 버튼 클릭 이벤트 발생');
-                if (!e.defaultPrevented) {
-                    e.preventDefault();
-                    handleAddItem({
-                        preventDefault: () => {},
-                        target: addItemForm
-                    });
-                }
-            });
-        }
-        
-        console.log('✅ 등록 폼 이벤트 리스너 설정 완료');
-    } else {
-        console.error('❌ 등록 폼을 찾을 수 없음');
-        
-        // 폼을 찾지 못한 경우 모든 폼 요소 확인
-        const allForms = document.querySelectorAll('form');
-        console.log('🔍 페이지의 모든 폼:', allForms.length + '개');
-        allForms.forEach((form, index) => {
-            console.log(`폼 ${index + 1}: ID = ${form.id}, class = ${form.className}`);
+    // 파일 선택 이벤트
+    const fileInput = document.getElementById('itemImages');
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            console.log('📁 파일 선택됨:', e.target.files.length + '개');
         });
     }
     
-
-    
-    // 관리자 로그인
-    const adminLoginBtn = document.getElementById('adminLoginBtn');
-    if (adminLoginBtn) {
-        adminLoginBtn.addEventListener('click', handleAdminLogin);
+    // 검색 이벤트
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', function(e) {
+            searchItems(e.target.value);
+        });
     }
     
-    // 정렬 선택
-    const sortSelect = document.getElementById('sortSelect');
+    // 정렬 이벤트
+    const sortSelect = document.getElementById('sortBy');
     if (sortSelect) {
-        sortSelect.addEventListener('change', sortItems);
-    }
-    
-    // 파일 업로드 관련
-    setupFileUpload();
-    
-
-    
-    // 거래 완료 모달 버튼들
-    const confirmCompleteBtn = document.getElementById('confirmCompleteBtn');
-    const cancelCompleteBtn = document.getElementById('cancelCompleteBtn');
-    
-    if (confirmCompleteBtn) {
-        confirmCompleteBtn.addEventListener('click', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
-            confirmCompleteTransaction();
+        sortSelect.addEventListener('change', function(e) {
+            sortItems(e.target.value);
+            displayItems();
         });
     }
     
-    if (cancelCompleteBtn) {
-        cancelCompleteBtn.addEventListener('click', function() {
-            document.getElementById('completeModal').style.display = 'none';
-        });
-    }
-    
-    // 상세보기 모달 닫기 버튼
-    const closeDetailModal = document.getElementById('closeDetailModal');
-    if (closeDetailModal) {
-        closeDetailModal.addEventListener('click', function() {
-            const modal = document.getElementById('itemDetailModal');
-            const modalContent = modal.querySelector('.modal-content');
-            
-            // 슬라이드 아웃 애니메이션
-            modalContent.classList.remove('show');
-            
-            // 애니메이션 완료 후 모달 숨김
-            setTimeout(() => {
-                modal.style.display = 'none';
-            }, 300);
-        });
-    }
-    
-    // 판매자 인증 모달 관련
-    const closeSellerAuthModalBtn = document.getElementById('closeSellerAuthModal');
-    if (closeSellerAuthModalBtn) {
-        closeSellerAuthModalBtn.addEventListener('click', function() {
-            closeSellerAuthModal();
-        });
-    }
-    
-    const sellerAuthForm = document.getElementById('sellerAuthForm');
-    if (sellerAuthForm) {
-        sellerAuthForm.addEventListener('submit', handleSellerAuth);
-    }
-    
-    // 판매자 인증 모달의 연락처 입력 포맷팅
-    const authContactInput = document.getElementById('authSellerContact');
-    if (authContactInput) {
-        authContactInput.addEventListener('input', function(e) {
-            let value = e.target.value.replace(/[^\d]/g, '');
-            
-            if (value.length >= 3) {
-                if (value.length <= 7) {
-                    value = value.replace(/(\d{3})(\d+)/, '$1-$2');
-                } else {
-                    value = value.replace(/(\d{3})(\d{4})(\d+)/, '$1-$2-$3');
-                }
-            }
-            
-            e.target.value = value;
-        });
-    }
-    
-    // 연락처 자동 포맷팅
-    setupContactFormatting();
+    console.log('🎯 모든 이벤트 리스너 설정 완료');
 }
 
-// 연락처 자동 포맷팅 설정
-function setupContactFormatting() {
-    const contactInputs = ['sellerContact'];
-    
-    contactInputs.forEach(inputId => {
-        const input = document.getElementById(inputId);
-        if (input) {
-            input.addEventListener('input', function(e) {
-                let value = e.target.value.replace(/[^\d]/g, '');
-                
-                if (value.length >= 3) {
-                    if (value.length <= 7) {
-                        value = value.replace(/(\d{3})(\d+)/, '$1-$2');
-                    } else {
-                        value = value.replace(/(\d{3})(\d{4})(\d+)/, '$1-$2-$3');
-                    }
-                }
-                
-                e.target.value = value;
-            });
-        }
-    });
-}
-
-// 파일 업로드 설정
-function setupFileUpload() {
-    const fileInput = document.getElementById('itemImage');
-    const fileUploadBtn = document.getElementById('fileUploadBtn');
-    const selectedFilesList = document.getElementById('selectedFilesList');
-    const imagePreview = document.getElementById('imagePreview');
-    
-    if (fileUploadBtn && fileInput) {
-        fileUploadBtn.addEventListener('click', () => fileInput.click());
-        
-        fileInput.addEventListener('change', handleFileSelection);
-        
-        // 드래그 앤 드롭
-        fileUploadBtn.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            fileUploadBtn.classList.add('drag-over');
-        });
-        
-        fileUploadBtn.addEventListener('dragleave', () => {
-            fileUploadBtn.classList.remove('drag-over');
-        });
-        
-        fileUploadBtn.addEventListener('drop', (e) => {
-            e.preventDefault();
-            fileUploadBtn.classList.remove('drag-over');
-            fileInput.files = e.dataTransfer.files;
-            handleFileSelection();
-        });
-    }
-}
-
-// 파일 선택 처리
-function handleFileSelection() {
-    const fileInput = document.getElementById('itemImage');
-    const selectedFilesList = document.getElementById('selectedFilesList');
-    const imagePreview = document.getElementById('imagePreview');
-    const fileUploadBtn = document.getElementById('fileUploadBtn');
-    
-    console.log('📁 파일 선택됨:', fileInput.files.length + '개');
-    
-    // 최대 10장 제한
-    if (fileInput.files.length > 10) {
-        alert('최대 10장까지만 업로드할 수 있습니다.');
-        fileInput.value = ''; // 파일 선택 초기화
-        return;
-    }
-    
-    // 업로드 버튼 텍스트 업데이트
-    const uploadSpan = fileUploadBtn.querySelector('span');
-    if (fileInput.files.length > 0) {
-        uploadSpan.textContent = `${fileInput.files.length}장 선택됨 (클릭하여 추가 선택)`;
-        
-        selectedFilesList.innerHTML = '';
-        imagePreview.innerHTML = '';
-        
-        Array.from(fileInput.files).forEach((file, index) => {
-            // 파일 목록에 추가
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-item';
-            fileItem.innerHTML = `
-                <span>${file.name}</span>
-                <button type="button" onclick="removeFile(${index})" class="remove-file-btn">×</button>
-            `;
-            selectedFilesList.appendChild(fileItem);
-            
-            // 이미지 미리보기
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const imgContainer = document.createElement('div');
-                    imgContainer.className = 'image-preview-item';
-                    imgContainer.innerHTML = `
-                        <img src="${e.target.result}" alt="미리보기">
-                        <button type="button" onclick="removeFile(${index})" class="remove-preview-btn">×</button>
-                    `;
-                    imagePreview.appendChild(imgContainer);
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-    } else {
-        uploadSpan.textContent = '갤러리에서 사진 선택하기';
-        selectedFilesList.innerHTML = '';
-        imagePreview.innerHTML = '';
-    }
-}
-
-// 파일 제거
-function removeFile(index) {
-    const fileInput = document.getElementById('itemImage');
-    const dt = new DataTransfer();
-    
-    Array.from(fileInput.files).forEach((file, i) => {
-        if (i !== index) {
-            dt.items.add(file);
-        }
-    });
-    
-    fileInput.files = dt.files;
-    handleFileSelection();
-}
-
-// 모달 열기/닫기 함수들
-function openAddItemModal() {
-    document.getElementById('addItemModal').style.display = 'block';
-}
-
-function openAdminModal() {
-    if (isAdmin) {
-        // 이미 관리자로 로그인된 경우 로그아웃
-        handleAdminLogout();
-    } else {
-        document.getElementById('adminModal').style.display = 'block';
-    }
-}
-
-function closeModals() {
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        modal.style.display = 'none';
-    });
-}
-
-// 물건 등록 처리
-async function handleAddItem(event) {
-    event.preventDefault();
-    
-    console.log('📝 등록하기 버튼 클릭됨');
-    alert('🚨 등록 함수 호출됨! (디버깅용)');
-    
-    const formData = new FormData(event.target);
-    const imageFiles = document.getElementById('itemImage').files;
-    
-    // 폼 데이터 유효성 검사
-    const itemName = formData.get('itemName');
-    const usageYears = formData.get('usageYears');
-    const purchasePrice = formData.get('purchasePrice');
-    const itemPrice = formData.get('itemPrice');
-    const itemDescription = formData.get('itemDescription');
-    const sellerName = formData.get('sellerName');
-    const sellerContact = formData.get('sellerContact');
-    
-    console.log('📝 폼 데이터 확인:', {
-        itemName,
-        usageYears,
-        purchasePrice,
-        itemPrice,
-        itemDescription,
-        sellerName,
-        sellerContact,
-        imageCount: imageFiles.length
-    });
-    
-    // 필수 필드 검증
-    if (!itemName || !usageYears || !purchasePrice || !itemPrice || !itemDescription || !sellerName || !sellerContact) {
-        alert('모든 필수 항목을 입력해주세요.');
-        return;
-    }
-    
+// localStorage에서 데이터 로드
+function loadItemsFromStorage() {
     try {
-        // 임시로 이미지 처리 건너뛰기 (문제 해결을 위해)
-        console.log('⚠️ 임시로 이미지 처리 건너뛰기 - 텍스트만 등록');
-        let imageUrls = [];
-        
-        // 나중에 이미지 처리 복원할 예정
-        /*
-        if (imageFiles.length > 0) {
-            console.log('🖼️ 이미지 압축 시작:', imageFiles.length + '개');
-            try {
-                imageUrls = await Promise.all(
-                    Array.from(imageFiles).map((file, index) => {
-                        console.log(`🖼️ 이미지 ${index + 1} 압축 중:`, file.name);
-                        return compressAndConvertToBase64(file);
-                    })
-                );
-                console.log('✅ 이미지 압축 완료:', imageUrls.length + '개');
-            } catch (imageError) {
-                console.error('❌ 이미지 압축 실패:', imageError);
-                alert('이미지 처리 중 오류가 발생했습니다. 이미지 없이 등록하시겠습니까?');
-                imageUrls = []; // 이미지 없이 진행
-            }
+        const storedItems = localStorage.getItem('items');
+        if (storedItems) {
+            currentItems = JSON.parse(storedItems);
+            console.log('📱 localStorage에서 로드:', currentItems.length + '개 제품');
         } else {
-            console.log('📷 이미지 없음 - 텍스트만 등록');
-        }
-        */
-        
-        // 사용기간 텍스트 생성
-        const yearsValue = formData.get('usageYears');
-        const years = parseFloat(yearsValue) || 0;
-        const months = parseInt(formData.get('usageMonths')) || 0;
-        
-        let usagePeriodText = '';
-        if (years === 0 && months === 0) {
-            usagePeriodText = '신제품 (미사용)';
-        } else if (yearsValue === '0.5') {
-            // "1년 미만" 옵션인 경우
-            usagePeriodText = months > 0 ? `1년 미만 (${months}개월)` : '1년 미만';
-        } else {
-            const yearText = years > 0 ? `${years}년` : '';
-            const monthText = months > 0 ? `${months}개월` : '';
-            
-            if (years >= 10) {
-                usagePeriodText = '10년 이상';
-            } else {
-                usagePeriodText = [yearText, monthText].filter(Boolean).join(' ') || '신제품';
-            }
+            currentItems = [];
+            console.log('📱 새로운 시작 - 저장된 제품 없음');
         }
         
-        const itemData = {
-            id: generateId(),
-            name: formData.get('itemName'),
-            images: imageUrls,
-            usagePeriod: usagePeriodText,
-            usageYears: years,
-            usageMonths: months,
-            purchasePrice: parseInt(formData.get('purchasePrice')),
-            price: parseInt(formData.get('itemPrice')),
-            description: formData.get('itemDescription'),
-            sellerName: formData.get('sellerName'),
-            sellerContact: formData.get('sellerContact'),
-            timestamp: Date.now(),
-            status: 'available' // available, sold
-        };
-        
-        // Firebase 또는 localStorage에 저장
-        let saved = false;
-        
-        console.log('💾 저장 시작...');
-        console.log('🔥 Firebase 연결 상태:', !!window.database);
-        
-        // Firebase 경고가 있어도 실시간 동기화를 위해 Firebase를 강제 사용
-        if (window.database) {
-            console.log('🔥 모든 사용자 공유를 위해 Firebase 웹 저장소 사용');
-            
-            // Firebase 저장을 여러 번 시도
-            let firebaseAttempts = 0;
-            const maxAttempts = 3;
-            
-            // Firebase 문제로 인해 즉시 localStorage 사용
-            console.log('⚠️ Firebase 연결 불안정 - localStorage로 즉시 저장');
-            
-            try {
-                const items = JSON.parse(localStorage.getItem('items') || '[]');
-                items.push(itemData);
-                localStorage.setItem('items', JSON.stringify(items));
-                saved = true;
-                console.log('✅ localStorage에 저장 완료');
-                
-                // currentItems 업데이트 (실시간 리스너가 없으므로)
-                currentItems.push(itemData);
-                sortItems();
-                displayItems();
-                
-                console.log('📱 제품이 성공적으로 등록되었습니다!');
-                
-            } catch (localError) {
-                console.error('❌ localStorage 저장 실패:', localError);
-                saved = false;
-            }
-            
-            // 백그라운드에서 Firebase 저장 시도 (실패해도 무시)
-            setTimeout(async () => {
-                try {
-                    console.log('🔥 백그라운드 Firebase 저장 시도...');
-                    const dbRef = ref(window.database, `items/${itemData.id}`);
-                    await Promise.race([
-                        set(dbRef, itemData),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-                    ]);
-                    console.log('✅ 백그라운드 Firebase 저장 성공');
-                } catch (bgError) {
-                    console.log('⚠️ 백그라운드 Firebase 저장 실패 (무시):', bgError.message);
-                }
-            }, 100);
-        } else {
-            console.log('📱 Firebase 연결 없음 - localStorage 사용');
-            
-            try {
-                // localStorage에 저장
-                const items = JSON.parse(localStorage.getItem('items') || '[]');
-                items.push(itemData);
-                localStorage.setItem('items', JSON.stringify(items));
-                saved = true;
-                console.log('✅ localStorage에 저장 완료');
-                
-                // currentItems 업데이트 (실시간 리스너가 없으므로)
-                currentItems.push(itemData);
-                sortItems();
-                displayItems();
-            } catch (localError) {
-                console.error('❌ localStorage 저장 실패:', localError);
-                saved = false;
-            }
-        }
-        
-        console.log('💾 저장 결과:', saved);
-        
-        if (saved) {
-            console.log('🎉 등록 성공!');
-            alert('물건이 성공적으로 등록되었습니다!');
-            closeModals();
-            event.target.reset();
-            document.getElementById('imagePreview').innerHTML = '';
-            document.getElementById('selectedFilesList').innerHTML = '';
-            
-            // 업로드 버튼 텍스트 초기화
-            const uploadSpan = document.querySelector('#fileUploadBtn span');
-            if (uploadSpan) {
-                uploadSpan.textContent = '갤러리에서 사진 선택하기';
-            }
-            
-            console.log('📱 새 아이템 등록 완료:', itemData.name);
-        } else {
-            console.error('❌ 저장 실패');
-            throw new Error('데이터 저장에 실패했습니다.');
-        }
+        sortItems();
+        displayItems();
         
     } catch (error) {
-        console.error('❌ 물건 등록 중 오류 발생:', error);
-        alert('물건 등록 중 오류가 발생했습니다: ' + error.message);
+        console.error('❌ localStorage 로드 실패:', error);
+        currentItems = [];
+        displayItems();
     }
 }
 
-// 이미지 압축 및 Base64 변환
-function compressAndConvertToBase64(file) {
-    return new Promise((resolve) => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const img = new Image();
+// 제품 등록 처리
+async function handleAddItem() {
+    try {
+        console.log('🚀 제품 등록 시작');
         
-        img.onload = function() {
-            const maxWidth = 800;
-            const maxHeight = 600;
-            let { width, height } = img;
-            
-            if (width > height) {
-                if (width > maxWidth) {
-                    height = height * maxWidth / width;
-                    width = maxWidth;
-                }
-            } else {
-                if (height > maxHeight) {
-                    width = width * maxHeight / height;
-                    height = maxHeight;
-                }
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            canvas.toBlob((blob) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.readAsDataURL(blob);
-            }, 'image/jpeg', 0.8);
+        // 폼 데이터 수집
+        const formData = {
+            itemName: document.getElementById('itemName').value.trim(),
+            usageYears: document.getElementById('usageYears').value,
+            purchasePrice: document.getElementById('purchasePrice').value,
+            itemPrice: document.getElementById('itemPrice').value,
+            itemDescription: document.getElementById('itemDescription').value.trim(),
+            sellerName: document.getElementById('sellerName').value.trim(),
+            contactInfo: document.getElementById('contactInfo').value.trim()
         };
         
-        img.src = URL.createObjectURL(file);
-    });
+        console.log('📝 폼 데이터:', formData);
+        
+        // 필수 필드 확인
+        if (!formData.itemName || !formData.itemPrice || !formData.sellerName) {
+            alert('제품명, 판매가격, 판매자명은 필수 항목입니다.');
+            return;
+        }
+        
+        // 제품 데이터 생성
+        const itemData = {
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            ...formData,
+            images: [], // 이미지는 나중에 구현
+            timestamp: Date.now(),
+            dateAdded: new Date().toLocaleString('ko-KR')
+        };
+        
+        console.log('💾 저장할 데이터:', itemData);
+        
+        // localStorage에 저장
+        currentItems.push(itemData);
+        localStorage.setItem('items', JSON.stringify(currentItems));
+        
+        console.log('✅ localStorage에 저장 완료');
+        
+        // 화면 업데이트
+        sortItems();
+        displayItems();
+        
+        // 폼 초기화
+        document.getElementById('itemForm').reset();
+        
+        // 성공 메시지
+        alert('🎉 제품이 성공적으로 등록되었습니다!');
+        
+        // 등록 탭에서 목록 탭으로 전환
+        document.getElementById('listTab').click();
+        
+    } catch (error) {
+        console.error('❌ 제품 등록 실패:', error);
+        alert('⚠️ 제품 등록에 실패했습니다. 다시 시도해주세요.');
+    }
 }
 
-
-
-// 물건 목록 로드 (Firebase 실시간 리스너가 처리하므로 정렬과 표시만)
-function loadItems() {
-    sortItems();
-    displayItems();
-}
-
-// 물건 표시
+// 제품 목록 표시
 function displayItems() {
-    const itemsList = document.getElementById('itemsList');
-    const emptyState = document.getElementById('emptyState');
+    const container = document.getElementById('itemsContainer');
+    if (!container) return;
     
     if (currentItems.length === 0) {
-        itemsList.style.display = 'none';
-        emptyState.style.display = 'flex';
+        container.innerHTML = '<div class="no-items">등록된 제품이 없습니다.</div>';
         return;
     }
     
-    itemsList.style.display = 'grid';
-    emptyState.style.display = 'none';
-    
-    itemsList.innerHTML = currentItems.map(item => createItemCard(item)).join('');
-}
-
-// 물건 카드 생성
-function createItemCard(item) {
-    const isSold = item.status === 'sold';
-    
-    // 당근마켓 스타일의 이미지
-    const imageHtml = item.images && item.images.length > 0 
-        ? `<div class="carrot-item-image" onclick="openItemDetail('${item.id}')">
-             <img src="${item.images[0]}" alt="${item.name}" loading="lazy">
-             ${item.images.length > 1 ? `<div class="image-count">${item.images.length}</div>` : ''}
-           </div>`
-        : `<div class="carrot-item-image carrot-no-image" onclick="openItemDetail('${item.id}')">
-             <i class="fas fa-image"></i>
-           </div>`;
-    
-    const timeAgo = getTimeAgo(item.timestamp);
-    
-    // 관리자 액션 버튼들
-    const adminActions = () => {
-        if (!isAdmin) return '';
-        
-        let actions = '';
-        if (isSold) {
-            actions += `<button onclick="deleteItem('${item.id}')" class="carrot-admin-btn carrot-admin-delete" title="삭제">
-                           <i class="fas fa-trash"></i>
-                       </button>`;
-        } else {
-            actions += `<button onclick="deleteItem('${item.id}')" class="carrot-admin-btn carrot-admin-delete" title="삭제">
-                           <i class="fas fa-trash"></i>
-                       </button>
-                       <button onclick="openCompleteModal('${item.id}')" class="carrot-admin-btn carrot-admin-complete" title="거래완료">
-                           <i class="fas fa-check"></i>
-                       </button>`;
-        }
-        return `<div class="carrot-admin-actions">${actions}</div>`;
-    };
-    
-    return `
-        <div class="carrot-item ${isSold ? 'sold' : ''}" data-id="${item.id}" onclick="openItemDetail('${item.id}')">
-            ${imageHtml}
-            <div class="carrot-item-content">
-                <h3 class="carrot-item-title">${item.name}${isSold ? ' (거래완료)' : ''}</h3>
-                <div class="carrot-item-time">
-                    <span>${timeAgo}</span>
-                </div>
-                <div class="carrot-item-price">${item.price.toLocaleString()}원</div>
-                ${!isSold && !isAdmin ? `
-                    <button onclick="event.stopPropagation(); openCompleteModal('${item.id}')" class="carrot-complete-btn" title="거래완료">
-                        <i class="fas fa-check"></i> 거래완료
-                    </button>
-                ` : ''}
+    container.innerHTML = currentItems.map(item => `
+        <div class="item-card" data-id="${item.id}">
+            <div class="item-image">
+                <img src="${item.images && item.images.length > 0 ? item.images[0] : 'data:image/svg+xml;charset=UTF-8,%3Csvg width="200" height="200" xmlns="http://www.w3.org/2000/svg"%3E%3Crect width="200" height="200" fill="%23f0f0f0"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" font-size="14" fill="%23999"%3E이미지 없음%3C/text%3E%3C/svg%3E'}" alt="${item.itemName}" onerror="this.src='data:image/svg+xml;charset=UTF-8,%3Csvg width=\\"200\\" height=\\"200\\" xmlns=\\"http://www.w3.org/2000/svg\\"%3E%3Crect width=\\"200\\" height=\\"200\\" fill=\\"%23f0f0f0\\"/%3E%3Ctext x=\\"50%\\" y=\\"50%\\" text-anchor=\\"middle\\" dy=\\".3em\\" font-size=\\"14\\" fill=\\"%23999\\"%3E이미지 없음%3C/text%3E%3C/svg%3E'">
             </div>
-            ${adminActions()}
+            <div class="item-info">
+                <h3>${item.itemName}</h3>
+                <p class="price">₩${parseInt(item.itemPrice).toLocaleString()}</p>
+                <p class="usage">사용기간: ${item.usageYears}년</p>
+                <p class="description">${item.itemDescription}</p>
+                <p class="seller">판매자: ${item.sellerName}</p>
+                <p class="contact">연락처: ${item.contactInfo}</p>
+                <p class="date">등록일: ${item.dateAdded}</p>
+            </div>
+            <div class="item-actions">
+                <button onclick="editItem('${item.id}')" class="edit-btn">수정</button>
+                <button onclick="deleteItem('${item.id}')" class="delete-btn">삭제</button>
+            </div>
         </div>
-    `;
+    `).join('');
 }
 
-// 이미지 변경
-function changeImage(itemId, imageIndex) {
-    const card = document.querySelector(`[data-id="${itemId}"]`);
-    const images = card.querySelectorAll('.item-image');
-    const indicators = card.querySelectorAll('.indicator');
-    
-    images.forEach((img, index) => {
-        img.classList.toggle('active', index === imageIndex);
-    });
-    
-    indicators.forEach((indicator, index) => {
-        indicator.classList.toggle('active', index === imageIndex);
-    });
-}
-
-// 이미지 네비게이션
-function navigateImage(itemId, direction) {
-    const card = document.querySelector(`[data-id="${itemId}"]`);
-    const images = card.querySelectorAll('.item-image');
-    const currentIndex = Array.from(images).findIndex(img => img.classList.contains('active'));
-    
-    let newIndex;
-    if (direction === 1) { // 다음
-        newIndex = (currentIndex + 1) % images.length;
-    } else { // 이전
-        newIndex = currentIndex === 0 ? images.length - 1 : currentIndex - 1;
-    }
-    
-    changeImage(itemId, newIndex);
-}
-
-
-
-// 상세보기 모달 열기
-function openItemDetail(itemId) {
-    const item = currentItems.find(i => i.id === itemId);
-    if (!item) return;
-    
-    currentDetailItem = item;
-    currentDetailImageIndex = 0;
-    
-    const modal = document.getElementById('itemDetailModal');
-    const content = document.getElementById('itemDetailContent');
-    
-    // 상세보기 내용 생성
-    content.innerHTML = createItemDetailContent(item);
-    modal.style.display = 'block';
-    
-    // 애니메이션을 위해 잠시 후 show 클래스 추가
-    setTimeout(() => {
-        modal.querySelector('.modal-content').classList.add('show');
-    }, 50);
-}
-
-// 상세보기 내용 생성
-function createItemDetailContent(item) {
-    const isSold = item.status === 'sold';
-    
-    const imagesHtml = item.images && item.images.length > 0 
-        ? `<div class="carrot-detail-images">
-             <div class="carrot-image-container">
-                 <img src="${item.images[0]}" alt="${item.name}" class="carrot-main-image" id="detailMainImage">
-                 ${item.images.length > 1 ? 
-                     `<div class="carrot-image-pagination">${1}/${item.images.length}</div>
-                      <div class="carrot-image-nav">
-                          <button class="carrot-nav-btn prev" onclick="navigateDetailImage(-1)" ${item.images.length <= 1 ? 'style="display:none"' : ''}>
-                              <i class="fas fa-chevron-left"></i>
-                          </button>
-                          <button class="carrot-nav-btn next" onclick="navigateDetailImage(1)" ${item.images.length <= 1 ? 'style="display:none"' : ''}>
-                              <i class="fas fa-chevron-right"></i>
-                          </button>
-                      </div>` 
-                     : ''
-                 }
-             </div>
-           </div>`
-        : '<div class="carrot-no-image"><i class="fas fa-camera"></i><span>사진 없음</span></div>';
-    
-    const statusBadge = () => {
-        if (isSold) return '<span class="status-badge sold">거래완료</span>';
-        return '<span class="status-badge available">판매중</span>';
-    };
-    
-    const contactInfo = () => {
-        let info = `<div class="seller-info">
-                      <h4>📞 판매자 정보</h4>
-                      <p><strong>이름:</strong> ${item.sellerName}</p>`;
-        
-        if (isAdmin) {
-            info += `<p><strong>연락처:</strong> ${item.sellerContact}</p>`;
-        } else {
-            info += `<p class="contact-hidden">💡 연락처는 관리자만 볼 수 있습니다</p>`;
-        }
-        
-        info += '</div>';
-        
-        return info;
-    };
-    
-    const actionButtons = () => {
-        let buttons = '';
-        
-        // 거래 완료된 물건에는 관리자 삭제 버튼만 표시
-        if (isSold) {
-            if (isAdmin) {
-                buttons += `<button onclick="deleteItem('${item.id}')" class="btn btn-danger">
-                               <i class="fas fa-trash"></i> 삭제
-                           </button>`;
-            }
-            return buttons ? `<div class="detail-actions">${buttons}</div>` : '';
-        }
-        
-        // 판매중인 물건에는 거래완료 버튼만 표시
-        // 관리자는 모든 기능 사용 가능
-        if (isAdmin) {
-            buttons += `<button onclick="deleteItem('${item.id}')" class="btn btn-danger">
-                           <i class="fas fa-trash"></i> 삭제
-                       </button>`;
-            
-            // 관리자는 언제든 거래완료 가능
-            buttons += `<button onclick="openCompleteModal('${item.id}')" class="btn btn-success">
-                           <i class="fas fa-check"></i> 거래완료
-                       </button>`;
-        } else {
-            // 일반 사용자(판매자)도 언제든 거래완료 가능 - 판매자 인증 필요
-            buttons += `<button onclick="openCompleteModal('${item.id}')" class="btn btn-success" title="판매자 인증 후 거래 완료">
-                           <i class="fas fa-check"></i> 거래완료
-                       </button>`;
-        }
-        
-        return buttons ? `<div class="detail-actions">${buttons}</div>` : '';
-    };
-    
-    return `
-        <div class="carrot-detail-content">
-            <!-- 이미지 섹션 -->
-            ${imagesHtml}
-            
-            <!-- 판매자 정보 -->
-            <div class="carrot-seller-section">
-                <div class="carrot-seller-info">
-                    <div class="carrot-seller-avatar">
-                        <i class="fas fa-user"></i>
-                    </div>
-                    <div class="carrot-seller-details">
-                        <div class="carrot-seller-name">${item.sellerName}</div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 상품 정보 -->
-            <div class="carrot-product-section">
-                <h1 class="carrot-product-title">${item.name}</h1>
-                <div class="carrot-product-meta">
-                    <span class="carrot-category">${item.usagePeriod || '사용기간 정보 없음'}</span>
-                    <span class="carrot-time">${getTimeAgo(item.timestamp)}</span>
-                </div>
-                <div class="carrot-product-price">${item.price.toLocaleString()}원</div>
-                <div class="carrot-purchase-price">구매가: ${item.purchasePrice.toLocaleString()}원</div>
-                
-                <div class="carrot-product-description">
-                    ${item.description}
-                </div>
-                
-                <div class="carrot-product-stats">
-                    <span>조회 ${Math.floor(Math.random() * 100) + 20}</span>
-                </div>
-                
-                ${statusBadge()}
-                
-                ${contactInfo()}
-            </div>
-            
-
-            
-            ${actionButtons()}
-        </div>
-    `;
-}
-
-// 상세보기에서 이미지 변경
-function changeDetailImage(imageIndex) {
-    const mainImage = document.getElementById('detailMainImage');
-    const thumbnails = document.querySelectorAll('.detail-thumbnail');
-    const item = currentItems.find(i => i.images && i.images.length > imageIndex);
-    
-    if (item && mainImage) {
-        mainImage.src = item.images[imageIndex];
-        
-        thumbnails.forEach((thumb, index) => {
-            thumb.classList.toggle('active', index === imageIndex);
-        });
-    }
-}
-
-// 상세보기 이미지 네비게이션
-let currentDetailImageIndex = 0;
-let currentDetailItem = null;
-
-function navigateDetailImage(direction) {
-    const mainImage = document.getElementById('detailMainImage');
-    const pagination = document.querySelector('.carrot-image-pagination');
-    
-    if (!currentDetailItem || !currentDetailItem.images || currentDetailItem.images.length <= 1) {
-        return;
-    }
-    
-    currentDetailImageIndex += direction;
-    
-    if (currentDetailImageIndex < 0) {
-        currentDetailImageIndex = currentDetailItem.images.length - 1;
-    } else if (currentDetailImageIndex >= currentDetailItem.images.length) {
-        currentDetailImageIndex = 0;
-    }
-    
-    if (mainImage) {
-        mainImage.src = currentDetailItem.images[currentDetailImageIndex];
-    }
-    
-    if (pagination) {
-        pagination.textContent = `${currentDetailImageIndex + 1}/${currentDetailItem.images.length}`;
-    }
-}
-
-// 시간 표시 함수
-function getTimeAgo(timestamp) {
-    const now = Date.now();
-    const diff = now - timestamp;
-    const minutes = Math.floor(diff / (1000 * 60));
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (minutes < 1) return '방금 전';
-    if (minutes < 60) return `${minutes}분 전`;
-    if (hours < 24) return `${hours}시간 전`;
-    if (days < 7) return `${days}일 전`;
-    
-    return new Date(timestamp).toLocaleDateString();
-}
-
-// 거래 완료 모달 열기 (판매자 인증 포함)
-function openCompleteModal(itemId) {
-    const item = currentItems.find(i => i.id === itemId);
-    
-    if (!item) {
-        alert('오류: 해당 물건을 찾을 수 없습니다. 페이지를 새로고침해주세요.');
-        return;
-    }
-    
-    // 관리자는 바로 거래 완료 모달 열기
-    if (isAdmin) {
-        currentItemIdForComplete = itemId;
-        
-        const completeModal = document.getElementById('completeModal');
-        if (completeModal) {
-            completeModal.style.display = 'block';
-        }
-        return;
-    }
-    
-    // 일반 사용자는 판매자 인증 필요
-    currentItemForAuth = item;
-    authAction = 'complete';
-    
-    // 모달 제목 변경
-    const modalTitle = document.querySelector('#sellerAuthModal h2');
-    if (modalTitle) {
-        modalTitle.innerHTML = '<i class="fas fa-user-check"></i> 판매자 인증';
-    }
-    
-    // 안내 문구 변경
-    const authInfo = document.querySelector('#sellerAuthModal .auth-info p');
-    if (authInfo) {
-        authInfo.innerHTML = '<i class="fas fa-info-circle"></i> 거래 완료를 위해 판매자 정보를 확인해주세요.';
-    }
-    
-    const authModal = document.getElementById('sellerAuthModal');
-    if (authModal) {
-        authModal.style.display = 'block';
-    }
-}
-
-// 판매자 인증 모달 닫기
-function closeSellerAuthModal() {
-    document.getElementById('sellerAuthModal').style.display = 'none';
-    currentItemForAuth = null;
-    authAction = null;
-    
-    // 폼 초기화
-    const form = document.getElementById('sellerAuthForm');
-    if (form) {
-        form.reset();
-    }
-}
-
-// 판매자 인증 처리
-async function handleSellerAuth(event) {
-    event.preventDefault();
-    
-    try {
-        if (!currentItemForAuth || !currentItemForAuth.id) {
-            alert('인증할 물건 정보가 없습니다.');
-            return;
-        }
-        
-        const formData = new FormData(event.target);
-        const inputName = formData.get('authSellerName')?.trim() || '';
-        const inputContact = formData.get('authSellerContact')?.trim() || '';
-        
-        // 판매자 정보 null/undefined 체크
-        if (!currentItemForAuth.sellerName || !currentItemForAuth.sellerContact) {
-            alert('오류: 판매자 정보가 누락되었습니다.\n물건 등록 시 판매자명과 연락처가 제대로 저장되지 않았을 수 있습니다.');
-            return;
-        }
-        
-        // 판매자 정보 확인 (대소문자 무시, 연락처 숫자만 비교)
-        const inputNameNormalized = inputName.toLowerCase().replace(/\s+/g, '');
-        const sellerNameNormalized = currentItemForAuth.sellerName.toLowerCase().replace(/\s+/g, '');
-        const inputContactNormalized = inputContact.replace(/[^\d]/g, '');
-        const sellerContactNormalized = currentItemForAuth.sellerContact.replace(/[^\d]/g, '');
-        
-        if (inputNameNormalized === sellerNameNormalized && 
-            inputContactNormalized === sellerContactNormalized) {
-            
-            // 인증 성공
-            console.log('✅ 판매자 인증 성공!');
-            console.log('📋 인증된 아이템:', currentItemForAuth);
-            console.log('🎯 authAction:', authAction);
-            
-            const itemId = currentItemForAuth.id;
-            const currentAuthAction = authAction; // authAction 값을 미리 저장
-            
-            // 모달 닫기 (하지만 변수 초기화는 나중에)
-            document.getElementById('sellerAuthModal').style.display = 'none';
-            const form = document.getElementById('sellerAuthForm');
-            if (form) {
-                form.reset();
-            }
-            
-            if (currentAuthAction === 'complete') {
-                console.log('🎯 거래완료 처리 분기 진입');
-                // 거래 완료 처리
-                currentItemIdForComplete = itemId;
-                console.log('🔄 currentItemIdForComplete 설정:', currentItemIdForComplete);
-                
-                // 판매자 인증 성공시 바로 거래완료 처리
-                console.log('📞 confirmCompleteTransaction 호출 시작');
-                
-                // Promise 방식으로 호출
-                confirmCompleteTransaction()
-                    .then(() => {
-                        console.log('✅ confirmCompleteTransaction 완료');
-                        // 거래완료 처리가 성공한 후에 변수 초기화
-                        currentItemForAuth = null;
-                        authAction = null;
-                    })
-                    .catch((error) => {
-                        console.error('❌ 거래완료 처리 오류:', error);
-                        alert('거래완료 처리 중 오류가 발생했습니다: ' + error.message);
-                        // 오류 발생시에도 변수 초기화
-                        currentItemForAuth = null;
-                        authAction = null;
-                    });
-            } else {
-                console.log('❓ authAction이 complete가 아님:', currentAuthAction);
-                // 거래완료가 아닌 경우에도 변수 초기화
-                currentItemForAuth = null;
-                authAction = null;
-            }
-            
-        } else {
-            // 인증 실패 - 구체적인 오류 정보 제공
-            let errorMessage = '판매자 정보가 일치하지 않습니다.\n\n';
-            
-            if (inputNameNormalized !== sellerNameNormalized) {
-                errorMessage += `❌ 이름 불일치\n`;
-                errorMessage += `입력: "${inputName}"\n`;
-                errorMessage += `등록된 이름: "${currentItemForAuth.sellerName}"\n\n`;
-            }
-            
-            if (inputContactNormalized !== sellerContactNormalized) {
-                errorMessage += `❌ 연락처 불일치\n`;
-                errorMessage += `입력: "${inputContact}" (숫자만: ${inputContactNormalized})\n`;
-                errorMessage += `등록된 연락처: "${currentItemForAuth.sellerContact}" (숫자만: ${sellerContactNormalized})\n\n`;
-            }
-            
-            errorMessage += '등록시 입력한 정보와 정확히 일치하게 입력해주세요.';
-            
-            alert(errorMessage);
-            
-            // 입력 필드 초기화
-            const nameInput = document.getElementById('authSellerName');
-            const contactInput = document.getElementById('authSellerContact');
-            
-            if (nameInput) nameInput.value = '';
-            if (contactInput) contactInput.value = '';
-            if (nameInput) nameInput.focus();
-        }
-        
-    } catch (error) {
-        console.error('판매자 인증 중 오류 발생:', error);
-        alert('인증 처리 중 오류가 발생했습니다.');
-    }
-}
-
-// 거래 완료 처리 확인
-async function confirmCompleteTransaction() {
-    console.log('🔄 거래완료 처리 시작:', currentItemIdForComplete);
-    
-    if (!currentItemIdForComplete) {
-        alert('오류: 거래할 물건 정보가 없습니다.\n\n다시 시도해주세요.');
-        throw new Error('currentItemIdForComplete가 없습니다');
-    }
-    
-    try {
-        let saveResult = false;
-        let itemName = '';
-        
-        try {
-            if (window.database) {
-                // Firebase에서 처리
-                const items = await loadFromFirebase('items', {});
-                console.log('📦 저장된 아이템 개수:', Object.keys(items).length);
-                
-                if (items[currentItemIdForComplete]) {
-                    itemName = items[currentItemIdForComplete].name;
-                    console.log('📝 변경 전 상태:', items[currentItemIdForComplete].status);
-                    
-                    // 상태를 sold로 변경
-                    items[currentItemIdForComplete].status = 'sold';
-                    console.log('✅ 변경 후 상태:', items[currentItemIdForComplete].status);
-                    
-                    // Firebase에 저장
-                    saveResult = await saveToFirebase('items', items);
-                    console.log('💾 Firebase 저장 결과:', saveResult);
-                } else {
-                    throw new Error('Firebase에서 아이템을 찾을 수 없음');
-                }
-            } else {
-                throw new Error('Firebase 연결 없음');
-            }
-        } catch (firebaseError) {
-            console.log('📱 Firebase 처리 실패, localStorage로 처리:', firebaseError.message);
-            // localStorage에서 처리
-            const items = JSON.parse(localStorage.getItem('items') || '[]');
-            const itemIndex = items.findIndex(item => item.id === currentItemIdForComplete);
-            
-            if (itemIndex !== -1) {
-                itemName = items[itemIndex].name;
-                items[itemIndex].status = 'sold';
-                localStorage.setItem('items', JSON.stringify(items));
-                saveResult = true;
-                
-                // currentItems 업데이트
-                const currentIndex = currentItems.findIndex(item => item.id === currentItemIdForComplete);
-                if (currentIndex !== -1) {
-                    currentItems[currentIndex].status = 'sold';
-                    displayItems();
-                }
-            } else {
-                throw new Error('localStorage에서 아이템을 찾을 수 없음');
-            }
-        }
-        
-        if (saveResult) {
-            alert(`"${itemName}" 거래가 완료되었습니다!`);
-            
-            // UI 업데이트
-            currentItemIdForComplete = null;
-            
-            // 모달 닫기
-            const detailModal = document.getElementById('itemDetailModal');
-            if (detailModal) {
-                detailModal.style.display = 'none';
-            }
-            
-            console.log('✅ 거래완료 처리 완료');
-            return true;
-        } else {
-            throw new Error('저장에 실패했습니다.');
-        }
-        
-    } catch (error) {
-        console.error('❌ 거래완료 처리 오류:', error);
-        alert('거래 완료 처리 중 오류가 발생했습니다: ' + error.message);
-        throw error;
-    }
-}
-
-
-
-// 물건 삭제
-async function deleteItem(itemId) {
-    if (!isAdmin) {
-        alert('관리자만 삭제할 수 있습니다.');
-        return;
-    }
-    
-    if (confirm('정말로 이 물건을 삭제하시겠습니까?')) {
-        try {
-            let deleted = false;
-            
-            try {
-                if (window.database) {
-                    // Firebase에서 삭제
-                    const items = await loadFromFirebase('items', {});
-                    delete items[itemId];
-                    await saveToFirebase('items', items);
-                    deleted = true;
-                    console.log('🔥 Firebase에서 삭제 완료');
-                } else {
-                    throw new Error('Firebase 연결 없음');
-                }
-            } catch (firebaseError) {
-                console.log('📱 Firebase 삭제 실패, localStorage에서 삭제:', firebaseError.message);
-                // localStorage에서 삭제
-                const items = JSON.parse(localStorage.getItem('items') || '[]');
-                const filteredItems = items.filter(item => item.id !== itemId);
-                localStorage.setItem('items', JSON.stringify(filteredItems));
-                deleted = true;
-                
-                // currentItems 업데이트
-                currentItems = currentItems.filter(item => item.id !== itemId);
-                displayItems();
-            }
-            
-            if (deleted) {
-                alert('물건이 삭제되었습니다.');
-                
-                // 모달 닫기
-                const detailModal = document.getElementById('itemDetailModal');
-                if (detailModal) {
-                    detailModal.style.display = 'none';
-                }
-                
-                console.log('✅ 삭제 완료');
-            }
-        } catch (error) {
-            console.error('삭제 중 오류 발생:', error);
-            alert('삭제 중 오류가 발생했습니다.');
-        }
-    }
-}
-
-// 정렬
-function sortItems() {
-    const sortBy = document.getElementById('sortSelect').value;
-    
+// 제품 정렬
+function sortItems(sortBy = 'newest') {
     currentItems.sort((a, b) => {
-        switch (sortBy) {
-            case 'latest':
-                return b.timestamp - a.timestamp;
-            case 'priceAsc':
-                return a.price - b.price;
-            case 'priceDesc':
-                return b.price - a.price;
+        switch(sortBy) {
+            case 'oldest':
+                return a.timestamp - b.timestamp;
+            case 'price-low':
+                return parseInt(a.itemPrice) - parseInt(b.itemPrice);
+            case 'price-high':
+                return parseInt(b.itemPrice) - parseInt(a.itemPrice);
             case 'name':
-                return a.name.localeCompare(b.name);
+                return a.itemName.localeCompare(b.itemName);
             default:
                 return b.timestamp - a.timestamp;
         }
     });
+}
+
+// 제품 검색
+function searchItems(searchTerm) {
+    const allItems = JSON.parse(localStorage.getItem('items') || '[]');
+    
+    if (!searchTerm.trim()) {
+        currentItems = allItems;
+    } else {
+        currentItems = allItems.filter(item => 
+            item.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.itemDescription.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.sellerName.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }
     
     displayItems();
 }
 
-// 관리자 로그인
-async function handleAdminLogin() {
-    const password = document.getElementById('adminPassword').value;
-    
-    if (password === 'admin123') {
-        isAdmin = true;
-        localStorage.setItem('adminLoggedIn', 'true');
-        
-        updateAdminUI();
-        closeModals();
-        alert('🔒 관리자로 로그인되었습니다!\n\n📋 관리자 권한:\n• 모든 물건 삭제 가능\n• 모든 거래 완료 처리 가능\n• 모든 연락처 정보 조회 가능\n\n⚠️ 삭제 버튼이 각 물건에 표시됩니다.');
-    } else {
-        alert('❌ 비밀번호가 틀렸습니다.\n관리자 비밀번호를 확인해주세요.');
+// 제품 삭제
+function deleteItem(id) {
+    if (confirm('정말로 이 제품을 삭제하시겠습니까?')) {
+        currentItems = currentItems.filter(item => item.id !== id);
+        localStorage.setItem('items', JSON.stringify(currentItems));
+        displayItems();
+        console.log('🗑️ 제품 삭제 완료:', id);
     }
 }
 
-// 관리자 로그아웃
-async function handleAdminLogout() {
-    isAdmin = false;
-    localStorage.removeItem('adminLoggedIn');
+// 제품 수정
+function editItem(id) {
+    const item = currentItems.find(item => item.id === id);
+    if (!item) return;
     
-    updateAdminUI();
-    alert('👋 관리자에서 로그아웃되었습니다.\n삭제 버튼이 숨겨지고 일반 사용자 모드로 전환됩니다.');
+    // 수정 모드 활성화
+    isEditing = true;
+    editingId = id;
+    
+    // 폼에 데이터 채우기
+    document.getElementById('itemName').value = item.itemName;
+    document.getElementById('usageYears').value = item.usageYears;
+    document.getElementById('purchasePrice').value = item.purchasePrice;
+    document.getElementById('itemPrice').value = item.itemPrice;
+    document.getElementById('itemDescription').value = item.itemDescription;
+    document.getElementById('sellerName').value = item.sellerName;
+    document.getElementById('contactInfo').value = item.contactInfo;
+    
+    // 등록 탭으로 이동
+    document.getElementById('addTab').click();
+    
+    // 버튼 텍스트 변경
+    document.getElementById('addBtn').textContent = '수정하기';
+    
+    console.log('✏️ 수정 모드 활성화:', id);
 }
 
-// 관리자 UI 업데이트
-function updateAdminUI() {
-    const adminBtn = document.getElementById('adminBtn');
-    const adminStatus = document.getElementById('adminStatus');
+// 탭 전환
+function switchTab(tabName) {
+    // 탭 버튼 활성화
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.getElementById(tabName + 'Tab').classList.add('active');
     
-    if (isAdmin) {
-        adminBtn.innerHTML = '<i class="fas fa-sign-out-alt"></i> 관리자 로그아웃';
-        adminBtn.classList.remove('btn-secondary');
-        adminBtn.classList.add('btn-danger');
-        adminBtn.title = '관리자 로그아웃';
-        
-        // 관리자 상태 표시
-        if (adminStatus) {
-            adminStatus.style.display = 'flex';
-        }
-    } else {
-        adminBtn.innerHTML = '<i class="fas fa-key"></i> 관리자 로그인';
-        adminBtn.classList.remove('btn-danger');
-        adminBtn.classList.add('btn-secondary');
-        adminBtn.title = '관리자 로그인';
-        
-        // 관리자 상태 숨기기
-        if (adminStatus) {
-            adminStatus.style.display = 'none';
-        }
+    // 탭 컨텐츠 표시
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(tabName + 'Content').classList.add('active');
+    
+    // 목록 탭으로 이동시 새로고침
+    if (tabName === 'list') {
+        loadItemsFromStorage();
     }
-    
-    // 관리자 버튼은 항상 표시
-    adminBtn.style.display = 'inline-block';
-    
-    displayItems(); // 관리자 상태 변경 시 아이템 다시 표시
 }
 
-
-
-
-
-// 디버깅용 테스트 함수들 (개발자 도구에서 사용)
-window.testComplete = {
-    // 현재 상태 확인
-    checkStatus: async () => {
-        console.log('=== 현재 상태 ===');
-        console.log('관리자 모드:', isAdmin);
-        const items = await loadFromFirebase('items', {});
-        console.log('저장된 아이템 수:', Object.keys(items).length);
-        console.log('현재 아이템 수:', currentItems.length);
-        console.log('currentItemIdForComplete:', currentItemIdForComplete);
-        console.log('currentItemForAuth:', currentItemForAuth);
-        console.log('authAction:', authAction);
-        console.log('저장된 아이템들:', items);
-    },
-    
-    // 샘플 아이템 추가 (테스트용)
-    addTestItem: async () => {
-        const testItem = {
-            id: generateId(),
-            name: '테스트 물건',
-            images: [],
-            usagePeriod: '1년',
-            usageYears: 1,
-            usageMonths: 0,
-            purchasePrice: 100000,
-            price: 50000,
-            description: '거래완료 테스트용 물건입니다.',
-            sellerName: '테스트',
-            sellerContact: '010-1234-5678',
-            timestamp: Date.now(),
-            status: 'available'
-        };
-        
-        const items = await loadFromFirebase('items', {});
-        items[testItem.id] = testItem;
-        await saveToFirebase('items', items);
-        
-        console.log('✅ 테스트 아이템 추가 완료');
-        console.log('📋 아이템 정보:', testItem);
-        console.log('💡 거래완료 테스트 방법:');
-        console.log('1. 거래완료 버튼 클릭');
-        console.log('2. 이름: 테스트');
-        console.log('3. 연락처: 010-1234-5678');
-    },
-    
-    // 모든 데이터 삭제
-    clearAll: async () => {
-        await saveToFirebase('items', {});
-        console.log('✅ 모든 데이터 삭제 완료');
-    }
-};
-
-
-
-// 전역 함수로 내보내기 (HTML에서 onclick으로 사용)
-window.changeImage = changeImage;
-window.navigateImage = navigateImage;
-window.navigateDetailImage = navigateDetailImage;
-window.openCompleteModal = openCompleteModal;
-window.deleteItem = deleteItem;
-window.removeFile = removeFile;
-window.openItemDetail = openItemDetail;
-window.changeDetailImage = changeDetailImage;
-window.closeSellerAuthModal = closeSellerAuthModal; 
+console.log('📱 localStorage 버전 스크립트 로드 완료'); 
