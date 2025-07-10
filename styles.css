@@ -1214,6 +1214,7 @@ form {
 
 .selected-files-list {
     margin-top: 15px;
+    background: transparent;
 }
 
 .file-item {
@@ -1221,10 +1222,11 @@ form {
     justify-content: space-between;
     align-items: center;
     padding: 10px 15px;
-    background: #f8f9fa;
+    background: #333;
     border-radius: 6px;
     margin-bottom: 8px;
-    border: 1px solid #e9ecef;
+    border: 1px solid #555;
+    color: #ffffff;
 }
 
 .remove-file-btn {
@@ -1259,7 +1261,7 @@ form {
     position: relative;
     border-radius: 8px;
     overflow: hidden;
-    border: 2px solid #e9ecef;
+    border: 2px solid #555;
 }
 
 .image-preview-item img {
