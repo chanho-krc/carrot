@@ -115,14 +115,22 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Firebase 연결 확인 후 실시간 리스너 설정
+    console.log('⏳ Firebase 연결 확인 중...');
+    
     setTimeout(() => {
+        console.log('🔍 Firebase 상태 체크:', {
+            database: !!window.database,
+            firebaseApp: !!window.firebaseApp
+        });
+        
         if (window.database) {
-            console.log('🔥 Firebase 연결됨');
+            console.log('✅ Firebase 연결됨');
             // 연결 상태를 사용자에게 표시
             showConnectionStatus('Firebase 연결됨 - 실시간 동기화 활성화', 'success');
             setupRealtimeListener();
         } else {
             console.error('❌ Firebase 초기화 실패');
+            console.error('Firebase 객체 확인:', window.database);
             showConnectionStatus('데이터베이스 연결 실패 - 로컬 모드로 작동', 'error');
             // Firebase 실패시 로컬스토리지로 fallback
             setupLocalStorageFallback();
@@ -406,8 +414,36 @@ function closeModals() {
 async function handleAddItem(event) {
     event.preventDefault();
     
+    console.log('📝 등록하기 버튼 클릭됨');
+    
     const formData = new FormData(event.target);
     const imageFiles = document.getElementById('itemImage').files;
+    
+    // 폼 데이터 유효성 검사
+    const itemName = formData.get('itemName');
+    const usageYears = formData.get('usageYears');
+    const purchasePrice = formData.get('purchasePrice');
+    const itemPrice = formData.get('itemPrice');
+    const itemDescription = formData.get('itemDescription');
+    const sellerName = formData.get('sellerName');
+    const sellerContact = formData.get('sellerContact');
+    
+    console.log('📝 폼 데이터 확인:', {
+        itemName,
+        usageYears,
+        purchasePrice,
+        itemPrice,
+        itemDescription,
+        sellerName,
+        sellerContact,
+        imageCount: imageFiles.length
+    });
+    
+    // 필수 필드 검증
+    if (!itemName || !usageYears || !purchasePrice || !itemPrice || !itemDescription || !sellerName || !sellerContact) {
+        alert('모든 필수 항목을 입력해주세요.');
+        return;
+    }
     
     try {
         // 이미지 업로드 및 압축 (이미지가 없어도 빈 배열로 처리)
@@ -459,31 +495,54 @@ async function handleAddItem(event) {
         // Firebase 또는 localStorage에 저장
         let saved = false;
         
+        console.log('💾 저장 시작...');
+        console.log('🔥 Firebase 연결 상태:', !!window.database);
+        
         try {
             if (window.database) {
+                console.log('🔥 Firebase에 저장 시도 중...');
                 // Firebase에 저장 시도
                 const items = await loadFromFirebase('items', {});
+                console.log('📖 기존 데이터 로드 완료:', Object.keys(items).length + '개 항목');
+                
                 items[itemData.id] = itemData;
+                console.log('➕ 새 데이터 추가 완료, ID:', itemData.id);
+                
                 saved = await saveToFirebase('items', items);
-                console.log('🔥 Firebase에 저장 완료');
+                if (saved) {
+                    console.log('✅ Firebase에 저장 완료');
+                } else {
+                    throw new Error('Firebase 저장 실패');
+                }
             } else {
                 throw new Error('Firebase 연결 없음');
             }
         } catch (firebaseError) {
-            console.log('📱 Firebase 저장 실패, localStorage로 저장:', firebaseError.message);
-            // localStorage에 저장
-            const items = JSON.parse(localStorage.getItem('items') || '[]');
-            items.push(itemData);
-            localStorage.setItem('items', JSON.stringify(items));
-            saved = true;
+            console.error('❌ Firebase 저장 실패:', firebaseError);
+            console.log('📱 localStorage로 저장 시도...');
             
-            // currentItems 업데이트 (실시간 리스너가 없으므로)
-            currentItems.push(itemData);
-            sortItems();
-            displayItems();
+            try {
+                // localStorage에 저장
+                const items = JSON.parse(localStorage.getItem('items') || '[]');
+                items.push(itemData);
+                localStorage.setItem('items', JSON.stringify(items));
+                saved = true;
+                console.log('✅ localStorage에 저장 완료');
+                
+                // currentItems 업데이트 (실시간 리스너가 없으므로)
+                currentItems.push(itemData);
+                sortItems();
+                displayItems();
+            } catch (localError) {
+                console.error('❌ localStorage 저장도 실패:', localError);
+                saved = false;
+            }
         }
         
+        console.log('💾 저장 결과:', saved);
+        
         if (saved) {
+            console.log('🎉 등록 성공!');
             alert('물건이 성공적으로 등록되었습니다!');
             closeModals();
             event.target.reset();
@@ -498,11 +557,12 @@ async function handleAddItem(event) {
             
             console.log('📱 새 아이템 등록 완료:', itemData.name);
         } else {
+            console.error('❌ 저장 실패');
             throw new Error('데이터 저장에 실패했습니다.');
         }
         
     } catch (error) {
-        console.error('물건 등록 중 오류 발생:', error);
+        console.error('❌ 물건 등록 중 오류 발생:', error);
         alert('물건 등록 중 오류가 발생했습니다: ' + error.message);
     }
 }

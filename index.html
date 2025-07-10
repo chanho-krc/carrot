@@ -315,21 +315,37 @@
 
     <!-- Firebase 설정 -->
     <script type="module">
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getDatabase } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
+        console.log('🔥 Firebase 초기화 시작...');
         
-        const firebaseConfig = {
-            apiKey: "AIzaSyDGpAHia_wEmrhnmYjrPJmMIJkOsQJ_8xY",
-            authDomain: "carrot-9c0cd.firebaseapp.com",
-            databaseURL: "https://carrot-9c0cd-default-rtdb.firebaseio.com",
-            projectId: "carrot-9c0cd",
-            storageBucket: "carrot-9c0cd.appspot.com",
-            messagingSenderId: "278760892471",
-            appId: "1:278760892471:web:d1dd4f7fb4ad0d031c86a8"
-        };
-        
-        const app = initializeApp(firebaseConfig);
-        window.database = getDatabase(app);
+        try {
+            const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js');
+            const { getDatabase } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js');
+            
+            console.log('📦 Firebase 모듈 로드 완료');
+            
+            const firebaseConfig = {
+                apiKey: "AIzaSyDGpAHia_wEmrhnmYjrPJmMIJkOsQJ_8xY",
+                authDomain: "carrot-9c0cd.firebaseapp.com",
+                databaseURL: "https://carrot-9c0cd-default-rtdb.firebaseio.com",
+                projectId: "carrot-9c0cd",
+                storageBucket: "carrot-9c0cd.appspot.com",
+                messagingSenderId: "278760892471",
+                appId: "1:278760892471:web:d1dd4f7fb4ad0d031c86a8"
+            };
+            
+            console.log('⚙️ Firebase 설정:', firebaseConfig);
+            
+            const app = initializeApp(firebaseConfig);
+            window.firebaseApp = app;
+            window.database = getDatabase(app);
+            
+            console.log('✅ Firebase 초기화 완료');
+            console.log('📱 Database 객체:', !!window.database);
+            
+        } catch (error) {
+            console.error('❌ Firebase 초기화 오류:', error);
+            window.database = null;
+        }
     </script>
     <script type="module" src="script.js?v=20240115-Firebase연동"></script>
 
