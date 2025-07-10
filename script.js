@@ -35,6 +35,33 @@ async function loadFromFirebase(key, defaultValue = null) {
     }
 }
 
+// 연결 상태 표시 함수
+function showConnectionStatus(message, type) {
+    // 기존 상태 메시지 제거
+    const existingStatus = document.querySelector('.connection-status');
+    if (existingStatus) {
+        existingStatus.remove();
+    }
+    
+    const statusDiv = document.createElement('div');
+    statusDiv.className = `connection-status ${type}`;
+    statusDiv.innerHTML = `
+        <i class="fas ${type === 'success' ? 'fa-wifi' : 'fa-exclamation-triangle'}"></i>
+        <span>${message}</span>
+    `;
+    
+    // 헤더에 추가
+    const header = document.querySelector('header .container');
+    header.appendChild(statusDiv);
+    
+    // 3초 후 자동 제거 (성공 메시지만)
+    if (type === 'success') {
+        setTimeout(() => {
+            statusDiv.remove();
+        }, 3000);
+    }
+}
+
 // 실시간 데이터 리스너 설정
 function setupRealtimeListener() {
     const itemsRef = ref(window.database, 'items');
@@ -49,10 +76,27 @@ function setupRealtimeListener() {
         sortItems();
         displayItems();
         console.log('📱 실시간 데이터 업데이트:', currentItems.length + '개 항목');
+        
+        // 데이터 동기화 성공 표시 (첫 로드 후)
+        if (!window.firstLoadComplete) {
+            window.firstLoadComplete = true;
+            showConnectionStatus('모든 기기에서 실시간 동기화됩니다', 'success');
+        }
     }, (error) => {
         console.error('❌ Firebase 리스너 오류:', error);
-        alert('실시간 데이터 동기화에 문제가 발생했습니다.');
+        showConnectionStatus('실시간 동기화 연결 실패 - 로컬 모드로 전환', 'error');
+        setupLocalStorageFallback();
     });
+}
+
+// 로컬스토리지 fallback 설정
+function setupLocalStorageFallback() {
+    // 로컬스토리지에서 데이터 로드
+    const items = JSON.parse(localStorage.getItem('items') || '[]');
+    currentItems = Array.isArray(items) ? items : [];
+    sortItems();
+    displayItems();
+    console.log('📱 로컬 모드로 전환:', currentItems.length + '개 항목');
 }
 
 // DOM이 로드되면 실행
@@ -74,10 +118,14 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => {
         if (window.database) {
             console.log('🔥 Firebase 연결됨');
+            // 연결 상태를 사용자에게 표시
+            showConnectionStatus('Firebase 연결됨 - 실시간 동기화 활성화', 'success');
             setupRealtimeListener();
         } else {
             console.error('❌ Firebase 초기화 실패');
-            alert('데이터베이스 연결에 실패했습니다.');
+            showConnectionStatus('데이터베이스 연결 실패 - 로컬 모드로 작동', 'error');
+            // Firebase 실패시 로컬스토리지로 fallback
+            setupLocalStorageFallback();
         }
     }, 1000);
 });
@@ -267,6 +315,9 @@ function handleFileSelection() {
     const fileInput = document.getElementById('itemImage');
     const selectedFilesList = document.getElementById('selectedFilesList');
     const imagePreview = document.getElementById('imagePreview');
+    const fileUploadBtn = document.getElementById('fileUploadBtn');
+    
+    console.log('📁 파일 선택됨:', fileInput.files.length + '개');
     
     // 최대 10장 제한
     if (fileInput.files.length > 10) {
@@ -275,7 +326,11 @@ function handleFileSelection() {
         return;
     }
     
+    // 업로드 버튼 텍스트 업데이트
+    const uploadSpan = fileUploadBtn.querySelector('span');
     if (fileInput.files.length > 0) {
+        uploadSpan.textContent = `${fileInput.files.length}장 선택됨 (클릭하여 추가 선택)`;
+        
         selectedFilesList.innerHTML = '';
         imagePreview.innerHTML = '';
         
@@ -304,6 +359,10 @@ function handleFileSelection() {
                 reader.readAsDataURL(file);
             }
         });
+    } else {
+        uploadSpan.textContent = '갤러리에서 사진 선택하기';
+        selectedFilesList.innerHTML = '';
+        imagePreview.innerHTML = '';
     }
 }
 
@@ -397,10 +456,32 @@ async function handleAddItem(event) {
             status: 'available' // available, sold
         };
         
-        // Firebase에 저장
-        const items = await loadFromFirebase('items', {});
-        items[itemData.id] = itemData;
-        const saved = await saveToFirebase('items', items);
+        // Firebase 또는 localStorage에 저장
+        let saved = false;
+        
+        try {
+            if (window.database) {
+                // Firebase에 저장 시도
+                const items = await loadFromFirebase('items', {});
+                items[itemData.id] = itemData;
+                saved = await saveToFirebase('items', items);
+                console.log('🔥 Firebase에 저장 완료');
+            } else {
+                throw new Error('Firebase 연결 없음');
+            }
+        } catch (firebaseError) {
+            console.log('📱 Firebase 저장 실패, localStorage로 저장:', firebaseError.message);
+            // localStorage에 저장
+            const items = JSON.parse(localStorage.getItem('items') || '[]');
+            items.push(itemData);
+            localStorage.setItem('items', JSON.stringify(items));
+            saved = true;
+            
+            // currentItems 업데이트 (실시간 리스너가 없으므로)
+            currentItems.push(itemData);
+            sortItems();
+            displayItems();
+        }
         
         if (saved) {
             alert('물건이 성공적으로 등록되었습니다!');
@@ -409,9 +490,15 @@ async function handleAddItem(event) {
             document.getElementById('imagePreview').innerHTML = '';
             document.getElementById('selectedFilesList').innerHTML = '';
             
+            // 업로드 버튼 텍스트 초기화
+            const uploadSpan = document.querySelector('#fileUploadBtn span');
+            if (uploadSpan) {
+                uploadSpan.textContent = '갤러리에서 사진 선택하기';
+            }
+            
             console.log('📱 새 아이템 등록 완료:', itemData.name);
         } else {
-            throw new Error('데이터베이스 저장에 실패했습니다.');
+            throw new Error('데이터 저장에 실패했습니다.');
         }
         
     } catch (error) {
@@ -956,43 +1043,71 @@ async function confirmCompleteTransaction() {
     }
     
     try {
-        const items = await loadFromFirebase('items', {});
-        console.log('📦 저장된 아이템 개수:', Object.keys(items).length);
+        let saveResult = false;
+        let itemName = '';
         
-        if (items[currentItemIdForComplete]) {
-            const itemName = items[currentItemIdForComplete].name;
-            console.log('📝 변경 전 상태:', items[currentItemIdForComplete].status);
-            
-            // 상태를 sold로 변경
-            items[currentItemIdForComplete].status = 'sold';
-            console.log('✅ 변경 후 상태:', items[currentItemIdForComplete].status);
-            
-            // Firebase에 저장
-            const saveResult = await saveToFirebase('items', items);
-            console.log('💾 저장 결과:', saveResult);
-            
-            if (saveResult) {
-                alert(`"${itemName}" 거래가 완료되었습니다!`);
+        try {
+            if (window.database) {
+                // Firebase에서 처리
+                const items = await loadFromFirebase('items', {});
+                console.log('📦 저장된 아이템 개수:', Object.keys(items).length);
                 
-                // UI 업데이트
-                currentItemIdForComplete = null;
-                
-                // 모달 닫기
-                const detailModal = document.getElementById('itemDetailModal');
-                if (detailModal) {
-                    detailModal.style.display = 'none';
+                if (items[currentItemIdForComplete]) {
+                    itemName = items[currentItemIdForComplete].name;
+                    console.log('📝 변경 전 상태:', items[currentItemIdForComplete].status);
+                    
+                    // 상태를 sold로 변경
+                    items[currentItemIdForComplete].status = 'sold';
+                    console.log('✅ 변경 후 상태:', items[currentItemIdForComplete].status);
+                    
+                    // Firebase에 저장
+                    saveResult = await saveToFirebase('items', items);
+                    console.log('💾 Firebase 저장 결과:', saveResult);
+                } else {
+                    throw new Error('Firebase에서 아이템을 찾을 수 없음');
                 }
-                
-                console.log('✅ 거래완료 처리 완료 - 실시간 리스너가 UI 업데이트');
-                
-                return true;
             } else {
-                throw new Error('저장에 실패했습니다.');
+                throw new Error('Firebase 연결 없음');
             }
+        } catch (firebaseError) {
+            console.log('📱 Firebase 처리 실패, localStorage로 처리:', firebaseError.message);
+            // localStorage에서 처리
+            const items = JSON.parse(localStorage.getItem('items') || '[]');
+            const itemIndex = items.findIndex(item => item.id === currentItemIdForComplete);
+            
+            if (itemIndex !== -1) {
+                itemName = items[itemIndex].name;
+                items[itemIndex].status = 'sold';
+                localStorage.setItem('items', JSON.stringify(items));
+                saveResult = true;
+                
+                // currentItems 업데이트
+                const currentIndex = currentItems.findIndex(item => item.id === currentItemIdForComplete);
+                if (currentIndex !== -1) {
+                    currentItems[currentIndex].status = 'sold';
+                    displayItems();
+                }
+            } else {
+                throw new Error('localStorage에서 아이템을 찾을 수 없음');
+            }
+        }
+        
+        if (saveResult) {
+            alert(`"${itemName}" 거래가 완료되었습니다!`);
+            
+            // UI 업데이트
+            currentItemIdForComplete = null;
+            
+            // 모달 닫기
+            const detailModal = document.getElementById('itemDetailModal');
+            if (detailModal) {
+                detailModal.style.display = 'none';
+            }
+            
+            console.log('✅ 거래완료 처리 완료');
+            return true;
         } else {
-            const errorMsg = '해당 물건을 찾을 수 없습니다. 페이지를 새로고침해주세요.';
-            alert('오류: ' + errorMsg);
-            throw new Error(errorMsg);
+            throw new Error('저장에 실패했습니다.');
         }
         
     } catch (error) {
@@ -1013,19 +1128,43 @@ async function deleteItem(itemId) {
     
     if (confirm('정말로 이 물건을 삭제하시겠습니까?')) {
         try {
-            const items = await loadFromFirebase('items', {});
-            delete items[itemId];
-            await saveToFirebase('items', items);
+            let deleted = false;
             
-            alert('물건이 삭제되었습니다.');
-            
-            // 모달 닫기
-            const detailModal = document.getElementById('itemDetailModal');
-            if (detailModal) {
-                detailModal.style.display = 'none';
+            try {
+                if (window.database) {
+                    // Firebase에서 삭제
+                    const items = await loadFromFirebase('items', {});
+                    delete items[itemId];
+                    await saveToFirebase('items', items);
+                    deleted = true;
+                    console.log('🔥 Firebase에서 삭제 완료');
+                } else {
+                    throw new Error('Firebase 연결 없음');
+                }
+            } catch (firebaseError) {
+                console.log('📱 Firebase 삭제 실패, localStorage에서 삭제:', firebaseError.message);
+                // localStorage에서 삭제
+                const items = JSON.parse(localStorage.getItem('items') || '[]');
+                const filteredItems = items.filter(item => item.id !== itemId);
+                localStorage.setItem('items', JSON.stringify(filteredItems));
+                deleted = true;
+                
+                // currentItems 업데이트
+                currentItems = currentItems.filter(item => item.id !== itemId);
+                displayItems();
             }
             
-            console.log('✅ 삭제 완료 - 실시간 리스너가 UI 업데이트');
+            if (deleted) {
+                alert('물건이 삭제되었습니다.');
+                
+                // 모달 닫기
+                const detailModal = document.getElementById('itemDetailModal');
+                if (detailModal) {
+                    detailModal.style.display = 'none';
+                }
+                
+                console.log('✅ 삭제 완료');
+            }
         } catch (error) {
             console.error('삭제 중 오류 발생:', error);
             alert('삭제 중 오류가 발생했습니다.');
