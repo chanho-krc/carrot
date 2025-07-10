@@ -111,7 +111,11 @@ async function handleAddItem() {
         
         // 필수 필드 확인
         if (!formData.itemName || !formData.itemPrice || !formData.sellerName) {
-            alert('제품명, 판매가격, 판매자명은 필수 항목입니다.');
+            console.log('⚠️ 필수 필드 누락');
+            // 첫 번째 빈 필드로 포커스 이동
+            if (!formData.itemName) document.getElementById('itemName').focus();
+            else if (!formData.itemPrice) document.getElementById('itemPrice').focus();
+            else if (!formData.sellerName) document.getElementById('sellerName').focus();
             return;
         }
         
@@ -139,15 +143,17 @@ async function handleAddItem() {
         // 폼 초기화
         document.getElementById('itemForm').reset();
         
-        // 성공 메시지
-        alert('🎉 제품이 성공적으로 등록되었습니다!');
+        // 성공 메시지 (콘솔만)
+        console.log('🎉 제품이 성공적으로 등록되었습니다!');
         
-        // 등록 탭에서 목록 탭으로 전환
-        document.getElementById('listTab').click();
+        // 등록 탭에서 목록 탭으로 자연스럽게 전환
+        setTimeout(() => {
+            document.getElementById('listTab')?.click();
+        }, 100);
         
     } catch (error) {
         console.error('❌ 제품 등록 실패:', error);
-        alert('⚠️ 제품 등록에 실패했습니다. 다시 시도해주세요.');
+        // alert 제거 - 콘솔 로그만 남김
     }
 }
 
@@ -220,7 +226,11 @@ function searchItems(searchTerm) {
 
 // 제품 삭제
 function deleteItem(id) {
-    if (confirm('정말로 이 제품을 삭제하시겠습니까?')) {
+    const item = currentItems.find(item => item.id === id);
+    if (!item) return;
+    
+    // 더 자연스러운 확인 메시지
+    if (confirm(`"${item.itemName}" 제품을 삭제하시겠습니까?`)) {
         currentItems = currentItems.filter(item => item.id !== id);
         localStorage.setItem('items', JSON.stringify(currentItems));
         displayItems();
